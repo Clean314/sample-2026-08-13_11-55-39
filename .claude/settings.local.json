@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3:*)",
+      "Bash(python:*)",
+      "Bash(xargs grep:*)",
+      "Bash(ls:*)",
+      "Bash(reg query:*)",
+      "Bash(powershell:*)",
+      "Bash(awk END{print NR} *)",
+      "Bash(mv \"/c/Users/PC/sample/city_light.png\" \"/c/Users/PC/sample/Assets/Resources/city_light.png\")",
+      "Bash(mv \"/c/Users/PC/sample/city_light_on.png\" \"/c/Users/PC/sample/Assets/Resources/city_light_on.png\")"
+    ]
+  }
+}

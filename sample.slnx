@@ -1,0 +1,4 @@
+﻿<Solution>
+  <Project Path="GoogleMobileAds.Editor.csproj" />
+  <Project Path="Assembly-CSharp.csproj" />
+</Solution>
