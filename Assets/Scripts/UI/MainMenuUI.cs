@@ -11,7 +11,7 @@ using UnityEngine.EventSystems;
 public class MainMenuUI : MonoBehaviour
 {
     // ── 모드 정의 ────────────────────────────────────────────────
-    static readonly string[] MODE_IMAGES        = { "normal_mode", "ice_mode", "toggle_mode", "disco_mode" };
+    static readonly string[] MODE_IMAGES        = { "Sprites/Modes/normal_mode", "Sprites/Modes/ice_mode", "Sprites/Modes/toggle_mode", "Sprites/Modes/disco_mode" };
     static readonly int[]    MODE_UNLOCK_SCORE  = { 0, 5000, 10000, 5000 };
     static readonly int[]    MODE_UNLOCK_FROM   = { 0, 0,    1,     2     };  // 어떤 모드의 최고점수를 확인할지
     static readonly string[] MODE_LOC_KEYS      = { "mode_normal", "mode_ice", "mode_toggle", "mode_disco" };
@@ -160,7 +160,7 @@ public class MainMenuUI : MonoBehaviour
     // ── 로고 (위로 올림) ──────────────────────────────────────
     void CreateLogo(GameObject parent)
     {
-        var customFont = Resources.Load<Font>("SCDream8");
+        var customFont = Resources.Load<Font>("Fonts/SCDream8");
         Font logoFont = customFont != null ? customFont : Font4();
         ColorUtility.TryParseHtmlString("#e2e8f0", out Color logoColor);
 
@@ -287,7 +287,7 @@ public class MainMenuUI : MonoBehaviour
         nameObj.transform.SetParent(container.transform, false);
         _modeNameText = nameObj.AddComponent<Text>();
         _modeNameText.text      = "";
-        _modeNameText.font      = Resources.Load<Font>("SCDream8") ?? Font4();
+        _modeNameText.font      = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
         _modeNameText.fontSize  = 56;
         _modeNameText.fontStyle = FontStyle.Normal;
         _modeNameText.alignment = TextAnchor.MiddleCenter;
@@ -347,7 +347,7 @@ public class MainMenuUI : MonoBehaviour
         txt.alignment = TextAnchor.MiddleCenter;
         ColorUtility.TryParseHtmlString("#e2e8f0", out Color chevronColor);
         txt.color = chevronColor;
-        txt.font  = Resources.Load<Font>("SCDream8") ?? Font4();
+        txt.font  = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
         var txtRt = txtObj.GetComponent<RectTransform>();
         txtRt.anchorMin = Vector2.zero;
         txtRt.anchorMax = Vector2.one;
@@ -376,7 +376,7 @@ public class MainMenuUI : MonoBehaviour
         {
             var txt = nextObj.AddComponent<Text>();
             txt.text      = LocalizationManager.Instance.Get("coming_soon");
-            txt.font      = Resources.Load<Font>("SCDream8") ?? Font4();
+            txt.font      = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
             txt.fontSize  = 78;
             txt.fontStyle = FontStyle.Bold;
             txt.alignment = TextAnchor.MiddleCenter;
@@ -552,7 +552,7 @@ public class MainMenuUI : MonoBehaviour
         txtObj.transform.SetParent(obj.transform, false);
         _langBtnText = txtObj.AddComponent<Text>();
         _langBtnText.text      = LocalizationManager.Instance.Get("lang_btn");
-        _langBtnText.font      = Resources.Load<Font>("SCDream8") ?? Font4();
+        _langBtnText.font      = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
         _langBtnText.fontSize  = 42;
         _langBtnText.fontStyle = FontStyle.Bold;
         ColorUtility.TryParseHtmlString("#e2e8f0", out Color txtColor);
@@ -619,7 +619,7 @@ public class MainMenuUI : MonoBehaviour
         var img = obj.AddComponent<Image>();
         img.preserveAspect = true;
         img.color          = new Color(0.886f, 0.910f, 0.941f);
-        img.sprite         = LoadSprite(bgm.IsMuted ? "mute" : "bgm_on");
+        img.sprite         = LoadSprite(bgm.IsMuted ? "Sprites/UI/mute" : "Sprites/UI/bgm_on");
 
         var btn    = obj.AddComponent<Button>();
         var colors = btn.colors;
@@ -639,7 +639,7 @@ public class MainMenuUI : MonoBehaviour
         btn.onClick.AddListener(() =>
         {
             bgm.ToggleMute();
-            img.sprite = LoadSprite(bgm.IsMuted ? "mute" : "bgm_on");
+            img.sprite = LoadSprite(bgm.IsMuted ? "Sprites/UI/mute" : "Sprites/UI/bgm_on");
         });
     }
 
@@ -650,7 +650,7 @@ public class MainMenuUI : MonoBehaviour
         return Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f));
     }
 
-    Font Font4() => Resources.Load<Font>("SCDream4") ?? Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+    Font Font4() => Resources.Load<Font>("Fonts/SCDream4") ?? Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 
     // ── [DEBUG] 최고 점수 설정 패널 ──────────────────────────
     // 스와이프로 표시되는 현재 모드의 m{idx}_HighScore를 직접 편집

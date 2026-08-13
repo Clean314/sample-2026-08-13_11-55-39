@@ -145,7 +145,7 @@ public class InGameUI : MonoBehaviour
     // ── 2차 터널 (곡 마지막) ─────────────────────────────────────────
     // 244.5초에 화면이 검게 덮이고(1차 터널 진입과 같은 blackout 램프), 검정이 걷히면서
     // 터널이 드러난다. 1차보다 링이 빠르게 밀려오고 회전도 빠르다.
-    const double BLACK2_START     = 244;                            // 4분 4.5초 — 검정 페이드인 시작
+    const double BLACK2_START     = 243;                            
     const double BLACK2_FULL      = DrivingBackground.DISAPPEAR_AT;   // 완전 검정 (드라이빙 배경 정리)
     const double TUNNEL2_START    = 246;                            // 검정이 걷히며 터널 페이드인
     const double TUNNEL2_FADE_SEC = 0.7;
@@ -155,7 +155,7 @@ public class InGameUI : MonoBehaviour
     // 4분 20초부터 흰 터널이 알록달록해진다(즉시 전환).
     // 색은 터널 축 위의 절대 위치로 정하므로 색 띠가 링에 붙어 같이 밀려오고,
     // 동시에 시간에 따라 색상환 전체가 계속 돌아 가만히 있어도 색이 변한다.
-    const double TUNNEL_RAINBOW_START = 260.0;   // 4분 20초
+    const double TUNNEL_RAINBOW_START = 265;   
     const float  TUNNEL_RAINBOW_PER_Z = 0.12f;   // ── 조정 손잡이: z 1당 색상환 회전 비율(띠 촘촘함) ──
     const float  TUNNEL_RAINBOW_SPEED = 0.80f;   // ── 조정 손잡이: 초당 색상환 회전수(변색 속도) ──
 
@@ -224,7 +224,7 @@ public class InGameUI : MonoBehaviour
         _sfxDecide = Resources.Load<AudioClip>(ModeConfig.Current.sfxDecide);
 
         if (ModeSession.SelectedMode == 2)
-            _sfxToggle = Resources.Load<AudioClip>("toggle_switch");
+            _sfxToggle = Resources.Load<AudioClip>("Audio/SFX/toggle_switch");
 
         // 스프라이트 미리 생성
         LoadColorSprites();
@@ -234,7 +234,7 @@ public class InGameUI : MonoBehaviour
 
         if (ModeSession.SelectedMode == 1)
         {
-            var meltTex = Resources.Load<Texture2D>("melting");
+            var meltTex = Resources.Load<Texture2D>("Sprites/Effects/melting");
             if (meltTex != null)
                 _meltingSprite = Sprite.Create(meltTex,
                     new Rect(0, 0, meltTex.width, meltTex.height), new Vector2(0.5f, 0.5f));
@@ -294,7 +294,7 @@ public class InGameUI : MonoBehaviour
             {
                 string name = (overrides != null && i < overrides.Length && overrides[i] != null)
                     ? overrides[i] : defaults[i];
-                var tex = Resources.Load<Texture2D>($"Puzzles/{name}");
+                var tex = Resources.Load<Texture2D>($"Sprites/Puzzles/{name}");
                 if (tex != null)
                     _colorSprites[i] = Sprite.Create(
                         tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f));
@@ -304,11 +304,11 @@ public class InGameUI : MonoBehaviour
         // 토글 모드: on/off 스프라이트 로드
         if (ModeSession.SelectedMode == 2)
         {
-            _toggleWhiteOnSprite  = LoadSpriteFromPath("Puzzles/white_on");
-            _toggleWhiteOffSprite = LoadSpriteFromPath("Puzzles/white_off");
-            _toggleBlackOnSprite  = LoadSpriteFromPath("Puzzles/black_on");
-            _toggleBlackOffSprite = LoadSpriteFromPath("Puzzles/black_off");
-            _specialBlockSprite   = LoadSpriteFromPath("Puzzles/special_block");
+            _toggleWhiteOnSprite  = LoadSpriteFromPath("Sprites/Puzzles/white_on");
+            _toggleWhiteOffSprite = LoadSpriteFromPath("Sprites/Puzzles/white_off");
+            _toggleBlackOnSprite  = LoadSpriteFromPath("Sprites/Puzzles/black_on");
+            _toggleBlackOffSprite = LoadSpriteFromPath("Sprites/Puzzles/black_off");
+            _specialBlockSprite   = LoadSpriteFromPath("Sprites/Puzzles/special_block");
         }
     }
 
@@ -458,7 +458,7 @@ public class InGameUI : MonoBehaviour
         var txtGo = new GameObject("Text");
         txtGo.transform.SetParent(obj.transform, false);
         var txt = txtGo.AddComponent<Text>();
-        txt.font      = Resources.Load<Font>("SCDream8") ?? Font4();
+        txt.font      = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
         txt.fontSize  = 50;
         txt.color     = Color.white;
         txt.alignment = TextAnchor.MiddleCenter;
@@ -480,7 +480,7 @@ public class InGameUI : MonoBehaviour
         var img = obj.AddComponent<Image>();
         img.preserveAspect = true;
         img.color          = new Color(0.886f, 0.910f, 0.941f);
-        img.sprite         = LoadMuteSprite(bgm.IsMuted ? "mute" : "bgm_on");
+        img.sprite         = LoadMuteSprite(bgm.IsMuted ? "Sprites/UI/mute" : "Sprites/UI/bgm_on");
 
         var btn    = obj.AddComponent<Button>();
         var colors = btn.colors;
@@ -500,7 +500,7 @@ public class InGameUI : MonoBehaviour
         btn.onClick.AddListener(() =>
         {
             bgm.ToggleMute();
-            img.sprite = LoadMuteSprite(bgm.IsMuted ? "mute" : "bgm_on");
+            img.sprite = LoadMuteSprite(bgm.IsMuted ? "Sprites/UI/mute" : "Sprites/UI/bgm_on");
         });
     }
 
@@ -2465,7 +2465,10 @@ public class InGameUI : MonoBehaviour
         return dx * dx + dy * dy <= (float)r * r;
     }
 
-    Font Font4() => Resources.Load<Font>("SCDream4") ?? Font4();
+    // 폰트 로드 실패 시 자기 자신을 부르면 무한 재귀(StackOverflow)라 빌트인 폰트로 떨어뜨린다.
+    // MainMenuUI.Font4()와 같은 폴백.
+    Font Font4() => Resources.Load<Font>("Fonts/SCDream4")
+                    ?? Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 }
 
 // ═══════════════════════════════════════════════════════════════

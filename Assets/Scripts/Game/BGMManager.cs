@@ -29,7 +29,7 @@ public class BGMManager : MonoBehaviour
         _source.playOnAwake = false;
         _source.volume      = 1f;
 
-        var clip = Resources.Load<AudioClip>("normal_bgm");
+        var clip = Resources.Load<AudioClip>("Audio/BGM/normal_bgm");
         if (clip != null)
             _source.clip = clip;
 

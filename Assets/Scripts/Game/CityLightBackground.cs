@@ -126,8 +126,8 @@ public class CityLightBackground : MonoBehaviour
 
         _whiteSprite = MakeWhiteSprite();
 
-        var bgSprite  = Resources.Load<Sprite>("city_light");
-        var offSprite = Resources.Load<Sprite>("city_light_on");
+        var bgSprite  = Resources.Load<Sprite>("Sprites/Effects/city_light");
+        var offSprite = Resources.Load<Sprite>("Sprites/Effects/city_light_on");
         BuildBackground(bgSprite);
         BuildWindows(bgSprite, offSprite);
         BuildSpotlights();
