@@ -157,65 +157,46 @@ public class MainMenuUI : MonoBehaviour
         rt.offsetMax = Vector2.zero;
     }
 
-    // ── 로고 (위로 올림) ──────────────────────────────────────
+    // ── 로고 ──────────────────────────────────────────────────
+    // 로고 PNG(948×302)를 원본 크기 그대로 배치한다. 캔버스 기준 해상도가 1080 폭이라
+    // 1:1 픽셀 매핑이 되어 리샘플링 없이 가장 선명하고, 좌우 여백도 132px씩 남는다.
+    // PNG는 팔레트+tRNS로 배경이 투명하고 글자색이 이미 #E2E8F0이라 tint 없이 흰색으로 둔다.
+    const int LOGO_W = 948;
+    const int LOGO_H = 302;
+
     void CreateLogo(GameObject parent)
     {
-        var customFont = Resources.Load<Font>("Fonts/SCDream8");
-        Font logoFont = customFont != null ? customFont : Font4();
-        ColorUtility.TryParseHtmlString("#e2e8f0", out Color logoColor);
-
-        // 원본 로고 텍스트
         var obj = new GameObject("Logo");
         obj.transform.SetParent(parent.transform, false);
 
-        var txt = obj.AddComponent<Text>();
-        txt.text      = "MATBLAST";
-        txt.fontSize  = 150;
-        txt.fontStyle = FontStyle.Bold;
-        txt.alignment = TextAnchor.MiddleCenter;
-        txt.color = logoColor;
-        txt.font  = logoFont;
-
-        var rt = obj.GetComponent<RectTransform>();
+        var rt = obj.AddComponent<RectTransform>();
         rt.anchorMin        = new Vector2(0.5f, 0.5f);
         rt.anchorMax        = new Vector2(0.5f, 0.5f);
         rt.pivot            = new Vector2(0.5f, 0.5f);
         rt.anchoredPosition = new Vector2(0, 620);
-        rt.sizeDelta        = new Vector2(980, 200);
 
-        // 슬레이트 효과: 글자 하단 절반을 어두운 색으로 덮는 클립 영역
-        // 로고 중심 y=620, 높이=200 → 하단 절반: y=520~620, 중심 y=570, 높이=100
-        var slateClip = new GameObject("LogoSlate");
-        slateClip.transform.SetParent(parent.transform, false);
-        slateClip.AddComponent<RectMask2D>();
-        var slateRt = slateClip.GetComponent<RectTransform>();
-        slateRt.anchorMin        = new Vector2(0.5f, 0.5f);
-        slateRt.anchorMax        = new Vector2(0.5f, 0.5f);
-        slateRt.pivot            = new Vector2(0.5f, 0.5f);
-        slateRt.anchoredPosition = new Vector2(0, 570);   // 하단 절반 중심
-        slateRt.sizeDelta        = new Vector2(980, 100); // 절반 높이
+        var logoSprite = LoadSprite("Sprites/Logo/logo");
+        if (logoSprite != null)
+        {
+            var img           = obj.AddComponent<Image>();
+            img.sprite        = logoSprite;
+            img.color         = Color.white;
+            img.raycastTarget = false;
+            rt.sizeDelta      = new Vector2(LOGO_W, LOGO_H);
+            return;
+        }
 
-        // 클립 안의 어두운 텍스트 (원본 위치 기준으로 정렬)
-        var darkObj = new GameObject("LogoSlateTxt");
-        darkObj.transform.SetParent(slateClip.transform, false);
-
-        var darkTxt = darkObj.AddComponent<Text>();
-        darkTxt.text      = "MATBLAST";
-        darkTxt.fontSize  = 150;
-        darkTxt.fontStyle = FontStyle.Bold;
-        darkTxt.alignment = TextAnchor.MiddleCenter;
-        darkTxt.font      = logoFont;
-        // 원본(#e2e8f0)보다 어두운 색
-        ColorUtility.TryParseHtmlString("#a8b2bf", out Color slateColor);
-        darkTxt.color = slateColor;
-
-        var darkRt = darkObj.GetComponent<RectTransform>();
-        darkRt.anchorMin        = new Vector2(0.5f, 0.5f);
-        darkRt.anchorMax        = new Vector2(0.5f, 0.5f);
-        darkRt.pivot            = new Vector2(0.5f, 0.5f);
-        // 클립 컨테이너(y=570) 기준으로 원본 텍스트 중심(y=620)에 맞춤 → 상대 offset = +50
-        darkRt.anchoredPosition = new Vector2(0, 50);
-        darkRt.sizeDelta        = new Vector2(980, 200);
+        // 이미지를 못 찾으면 예전처럼 텍스트로 그려서 화면이 비지 않게 한다
+        ColorUtility.TryParseHtmlString("#e2e8f0", out Color logoColor);
+        var txt       = obj.AddComponent<Text>();
+        txt.text      = "MATBLAST";
+        txt.fontSize  = 150;
+        txt.fontStyle = FontStyle.Bold;
+        txt.alignment = TextAnchor.MiddleCenter;
+        txt.color     = logoColor;
+        txt.font      = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
+        txt.raycastTarget = false;
+        rt.sizeDelta  = new Vector2(980, 200);
     }
 
     // ── 모드 선택기 ───────────────────────────────────────────
