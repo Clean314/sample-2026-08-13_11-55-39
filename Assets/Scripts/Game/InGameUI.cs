@@ -187,6 +187,17 @@ public class InGameUI : MonoBehaviour
     Sprite _toggleBlackOffSprite;
     Sprite _specialBlockSprite;  // 토글 모드 스페셜 블럭 이미지
 
+    // 디스코 모드 무지개 블럭
+    Sprite  _rainbowBlockSprite;
+    Sprite  _burstRingSprite;                // 폭발 충격파용 얇은 링
+    Sprite  _burstChipSprite;                // 폭발 조각용 작은 사각형
+    Text[]  _discoHearts;                    // 무지개 블럭까지 남은 줄 수 게이지 (♥ 텍스트)
+    const int   RAINBOW_BURST_COUNT = 110;   // ── 조정 손잡이: 터질 때 튀는 조각 수 ──
+    const float RAINBOW_BURST_SEC   = 1.15f; // ── 조정 손잡이: 조각이 남아있는 시간 ──
+    const int   RING_COUNT          = 2;     // ── 조정 손잡이: 충격파 링 개수 ──
+    static readonly Color HEART_FULL  = new Color(1.00f, 0.28f, 0.48f);
+    static readonly Color HEART_EMPTY = new Color(1.00f, 1.00f, 1.00f, 0.20f);
+
     // ── 색상 상수 ───────────────────────────────────────────────
     static readonly Color BG_DARK         = new Color(0.086f, 0.082f, 0.141f); // #161524 (화이트 모드 / 기본)
     static readonly Color BG_LIGHT        = new Color(0.96f,  0.96f,  1.00f);  // 블랙 모드 배경
@@ -312,6 +323,54 @@ public class InGameUI : MonoBehaviour
             _toggleBlackOffSprite = LoadSpriteFromPath("Sprites/Puzzles/black_off");
             _specialBlockSprite   = LoadSpriteFromPath("Sprites/Puzzles/special_block");
         }
+
+        // 디스코 모드: 무지개 블럭은 전용 PNG가 없어 코드로 그린다
+        if (ModeSession.SelectedMode == 3)
+        {
+            _rainbowBlockSprite = MakeRainbowSprite(110, 30);
+
+            // 충격파 링. 터널용 _ringSprite(두께 6%)를 키워 쓰면 테두리가 같이 두꺼워져
+            // 굵은 훌라후프처럼 보이므로, 큰 원본에 얇은 선으로 따로 굽는다.
+            // 512×1.8% ≈ 9px → 980px까지 늘려도 선은 약 17px로 가늘게 유지된다.
+            _burstRingSprite = MakeRingSprite(512, 0.018f);
+
+            // 폭발 조각: 모서리만 살짝 둥근 작은 사각형(색종이 조각)
+            _burstChipSprite = MakeRoundedSprite(32, 32, 6);
+        }
+    }
+
+    // ── 무지개 블럭 스프라이트: 둥근 사각 + 대각선 색상환 스윕 ──
+    Sprite MakeRainbowSprite(int size, int radius)
+    {
+        var tex = new Texture2D(size, size, TextureFormat.ARGB32, false);
+        tex.filterMode = FilterMode.Bilinear;
+        var px   = new Color32[size * size];
+        float half = (size - 1) * 0.5f;
+
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                if (!InRoundedRect(x, y, size, size, radius))
+                {
+                    px[y * size + x] = new Color32(0, 0, 0, 0);
+                    continue;
+                }
+
+                // 대각선을 따라 색상환을 한 바퀴 (좌하단 빨강 → 우상단 다시 빨강)
+                float hue = (x + y) / (float)(2 * size);
+                var   c   = Color.HSVToRGB(hue, 0.80f, 1f);
+
+                // 가장자리만 살짝 어둡게 해서 셀 경계가 읽히도록
+                float edge  = Mathf.Clamp01(1f - Mathf.Max(Mathf.Abs(x - half), Mathf.Abs(y - half)) / half);
+                float shade = Mathf.Lerp(0.70f, 1f, Mathf.Clamp01(edge * 4f));
+
+                px[y * size + x] = new Color32(
+                    (byte)(c.r * 255f * shade), (byte)(c.g * 255f * shade), (byte)(c.b * 255f * shade), 255);
+            }
+
+        tex.SetPixels32(px);
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
     }
 
     Sprite LoadSpriteFromPath(string path)
@@ -430,6 +489,57 @@ public class InGameUI : MonoBehaviour
                 cRt.sizeDelta         = new Vector2(44, 44);
                 _gaugeCircles[i]      = cImg;
             }
+        }
+
+        // 디스코 모드 하트 게이지 (무지개 블럭까지 남은 줄 수)
+        if (ModeSession.SelectedMode == 3)
+        {
+            int n = GameManager.DISCO_LINES_PER_RAINBOW;
+
+            var heartRoot = new GameObject("DiscoHeartGauge");
+            heartRoot.transform.SetParent(_canvas.transform, false);
+            var hRootRt              = heartRoot.AddComponent<RectTransform>();
+            hRootRt.anchorMin        = new Vector2(0.5f, 1f);
+            hRootRt.anchorMax        = new Vector2(0.5f, 1f);
+            hRootRt.pivot            = new Vector2(0.5f, 1f);
+            // 점수 텍스트 하단(-315)과 디스코 그리드 백드롭 상단(-385) 사이 70px에 딱 맞춘다
+            hRootRt.anchoredPosition = new Vector2(0, -313);
+            hRootRt.sizeDelta        = new Vector2(n * 78, 70);
+
+            _discoHearts = new Text[n];
+            for (int i = 0; i < n; i++)
+            {
+                var hGo = new GameObject($"Heart_{i}");
+                hGo.transform.SetParent(heartRoot.transform, false);
+                var t           = hGo.AddComponent<Text>();
+                t.font          = Font4();
+                t.fontSize      = 58;
+                t.alignment     = TextAnchor.MiddleCenter;
+                t.text          = "♥";   // SCDream4/8 모두 U+2665 글리프를 갖고 있음(cmap 확인)
+                t.color         = HEART_EMPTY;
+                t.raycastTarget = false;
+
+                var hRt              = hGo.GetComponent<RectTransform>();
+                hRt.anchorMin        = new Vector2(0.5f, 0.5f);
+                hRt.anchorMax        = new Vector2(0.5f, 0.5f);
+                hRt.pivot            = new Vector2(0.5f, 0.5f);
+                hRt.anchoredPosition = new Vector2((i - (n - 1) * 0.5f) * 78f, 0f);
+                hRt.sizeDelta        = new Vector2(72, 72);
+                _discoHearts[i]      = t;
+            }
+        }
+    }
+
+    // 하트 게이지 갱신: 채워진 하트는 분홍, 빈 하트는 흐릿하게
+    void RefreshDiscoHearts()
+    {
+        if (_discoHearts == null) return;
+        for (int i = 0; i < _discoHearts.Length; i++)
+        {
+            if (_discoHearts[i] == null) continue;
+            bool filled = i < _gm.DiscoLineGauge;
+            _discoHearts[i].color = filled ? HEART_FULL : HEART_EMPTY;
+            _discoHearts[i].rectTransform.localScale = Vector3.one * (filled ? 1.12f : 1f);
         }
     }
 
@@ -669,6 +779,10 @@ public class InGameUI : MonoBehaviour
         float beatPhase = _beatTracker != null ? _beatTracker.BeatPhase : 0f;
         float beatDecay = Mathf.Max(0f, 1f - beatPhase * 3.5f);
         float beatPulseY = 1f + 0.14f * beatDecay * beatDecay;
+
+        // 무지개 블럭은 배경 연출 구간과 무관하게 항상 맥동해야 하므로
+        // 아래 레이어 on/off 및 early return보다 먼저 처리한다.
+        UpdateRainbowBlocks(Time.time);
 
         // 48.5~49초 페이드아웃 → 49~100.1초 완전 블랙(이 동안 터널/흰색배경이 화면을 채움)
         // → 100.1~100.6초 페이드인으로 셀로 복귀.
@@ -1343,10 +1457,11 @@ public class InGameUI : MonoBehaviour
                 img.sprite          = _spr110;
                 img.type            = Image.Type.Sliced;
                 img.color           = CELL_EMPTY_DARK;
-                img.raycastTarget   = ModeSession.SelectedMode == 2;
+                // 토글(스페셜 블럭)·디스코(무지개 블럭) 모드만 셀 탭을 받는다
+                bool tapMode        = ModeSession.SelectedMode == 2 || ModeSession.SelectedMode == 3;
+                img.raycastTarget   = tapMode;
 
-                // 토글 모드: 스페셜 블럭 탭 감지
-                if (ModeSession.SelectedMode == 2)
+                if (tapMode)
                 {
                     var clickHandler = cellGo.AddComponent<GridCellClickHandler>();
                     clickHandler.Init(this, r, c);
@@ -1419,6 +1534,10 @@ public class InGameUI : MonoBehaviour
             RefreshToggleModeBackground();
             RefreshGauge();
         }
+        else if (ModeSession.SelectedMode == 3)
+        {
+            RefreshDiscoHearts();
+        }
 
         RefreshTray();
 
@@ -1471,12 +1590,316 @@ public class InGameUI : MonoBehaviour
             _gaugeCircles[i].color = i < _gm.SpecialGauge ? GOLD : emptyColor;
     }
 
-    // 토글 모드 셀 탭: 스페셜 블럭 여부 확인 후 팝업 표시
+    // 셀 탭: 토글 모드는 스페셜 블럭 팝업, 디스코 모드는 무지개 블럭 발동
     public void OnGridCellClick(int r, int c)
     {
         if (_gm == null || _dragging || _busy) return;
+
+        if (ModeSession.SelectedMode == 3)
+        {
+            // 발동하면 보드에서 즉시 사라지므로 연타해도 두 번 터지지 않는다
+            if (_gm.Board[r, c] == GameManager.RAINBOW_BLOCK_VAL)
+                StartCoroutine(PlayRainbowBurst(r, c));
+            return;
+        }
+
         if (_gm.Board[r, c] != GameManager.SPECIAL_BLOCK_VAL) return;
         ShowColorSwapPopup();
+    }
+
+    // ── 디스코 무지개 블럭: 탭 → 가로세로 클리어 + 파티클 폭발 ──
+    // 보드 반영(ActivateRainbowBlock)이 OnStateChanged를 거쳐 기존 줄 클리어 연출을 띄우고,
+    // 이 코루틴은 그 위에 화면 플래시 / 링 / 십자 빔 / 파티클을 얹는다.
+    //
+    // FX 루트는 그리드가 아니라 캔버스 최상단 자식으로 단다. 그리드 안에 두면 나중에 생성된
+    // 캔버스 자식(트레이·점수·흰 플래시 오버레이)에 가려질 수 있어서, 무엇에도 안 가리게 못박는다.
+    // 좌표는 그리드 로컬 → 캔버스로 옮겨야 하는데, 둘 다 화면 중앙 앵커라 그리드 오프셋만 더하면 된다.
+    IEnumerator PlayRainbowBurst(int row, int col)
+    {
+        Vector2 gridOff = _gridRt != null ? _gridRt.anchoredPosition : Vector2.zero;
+        Vector2 origin  = gridOff + new Vector2(-420f + col * 120f, 420f - row * 120f);
+
+        if (!_gm.ActivateRainbowBlock(row, col)) yield break;
+
+        var fxRoot = new GameObject("RainbowBurstFX");
+        fxRoot.transform.SetParent(_canvas.transform, false);
+        var rootRt       = fxRoot.AddComponent<RectTransform>();
+        rootRt.anchorMin = Vector2.zero;
+        rootRt.anchorMax = Vector2.one;
+        rootRt.offsetMin = rootRt.offsetMax = Vector2.zero;
+        fxRoot.transform.SetAsLastSibling();
+
+        // 1) 화면 전체 순간 플래시 — "터졌다"는 신호를 가장 먼저 준다
+        var flashGo = new GameObject("BurstFlash");
+        flashGo.transform.SetParent(fxRoot.transform, false);
+        var flashImg           = flashGo.AddComponent<Image>();
+        flashImg.color         = new Color(1f, 1f, 1f, 0f);
+        flashImg.raycastTarget = false;
+        var flashRt      = flashGo.GetComponent<RectTransform>();
+        flashRt.anchorMin = Vector2.zero;
+        flashRt.anchorMax = Vector2.one;
+        flashRt.offsetMin = flashRt.offsetMax = Vector2.zero;
+
+        // 2) 십자 빔 — 가로세로가 통째로 날아간다는 걸 보여 준다
+        var beamH = MakeBurstBeam(fxRoot.transform, new Vector2(gridOff.x, origin.y));
+        var beamV = MakeBurstBeam(fxRoot.transform, new Vector2(origin.x, gridOff.y));
+
+        // 3) 충격파 링 2개. 색을 돌리면 촌스러워져서 흰색으로만 얇게 빠르게 지나가게 한다.
+        //    색은 파티클이 충분히 내고 있으므로 링은 "확 퍼지는 압력"만 담당한다.
+        var ringRts  = new RectTransform[RING_COUNT];
+        var ringImgs = new Image[RING_COUNT];
+        if (_burstRingSprite != null)
+            for (int i = 0; i < RING_COUNT; i++)
+            {
+                var ringGo = new GameObject($"BurstRing_{i}");
+                ringGo.transform.SetParent(fxRoot.transform, false);
+                var rImg              = ringGo.AddComponent<Image>();
+                rImg.sprite           = _burstRingSprite;
+                rImg.raycastTarget    = false;
+                rImg.color            = Color.clear;
+                var rRt               = ringGo.GetComponent<RectTransform>();
+                rRt.anchorMin         = rRt.anchorMax = new Vector2(0.5f, 0.5f);
+                rRt.pivot             = new Vector2(0.5f, 0.5f);
+                rRt.anchoredPosition  = origin;
+                ringRts[i]  = rRt;
+                ringImgs[i] = rImg;
+            }
+
+        // 4) 클리어되는 칸마다 터지는 잔파티클 — 중심에서 바깥으로 파도처럼 번진다
+        for (int c = 0; c < GameManager.SIZE; c++)
+            StartCoroutine(RainbowCellPop(fxRoot.transform,
+                gridOff + new Vector2(-420f + c * 120f, 420f - row * 120f),
+                Mathf.Abs(c - col) * 0.035f));
+        for (int r = 0; r < GameManager.SIZE; r++)
+            if (r != row)
+                StartCoroutine(RainbowCellPop(fxRoot.transform,
+                    gridOff + new Vector2(-420f + col * 120f, 420f - r * 120f),
+                    Mathf.Abs(r - row) * 0.035f));
+
+        // 5) 파티클: 원점에서 사방으로 튀며 중력에 끌려 흩어진다
+        var rts   = new RectTransform[RAINBOW_BURST_COUNT];
+        var imgs  = new Image[RAINBOW_BURST_COUNT];
+        var pos   = new Vector2[RAINBOW_BURST_COUNT];
+        var vel   = new Vector2[RAINBOW_BURST_COUNT];
+        var cols  = new Color[RAINBOW_BURST_COUNT];
+        var size0 = new float[RAINBOW_BURST_COUNT];
+        var aspect= new float[RAINBOW_BURST_COUNT];
+        var spin  = new float[RAINBOW_BURST_COUNT];
+        var life  = new float[RAINBOW_BURST_COUNT];
+
+        var particleSpr = _burstChipSprite != null ? _burstChipSprite : _spr110;
+
+        for (int i = 0; i < RAINBOW_BURST_COUNT; i++)
+        {
+            var go = new GameObject($"burst_{i}");
+            go.transform.SetParent(fxRoot.transform, false);
+            var img = go.AddComponent<Image>();
+            img.sprite        = particleSpr;
+            img.raycastTarget = false;
+
+            var rt       = go.GetComponent<RectTransform>();
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot     = new Vector2(0.5f, 0.5f);
+
+            // 색상환을 고르게 나눠 가지되 살짝 흔들어 줄 세운 티를 없앤다
+            float hue = (i / (float)RAINBOW_BURST_COUNT + Random.Range(-0.04f, 0.04f) + 1f) % 1f;
+            float ang = i * (Mathf.PI * 2f / RAINBOW_BURST_COUNT) + Random.Range(-0.3f, 0.3f);
+            float spd = Random.Range(700f, 2100f);
+
+            rts[i]   = rt;
+            imgs[i]  = img;
+            pos[i]   = origin;
+            vel[i]   = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * spd;
+            cols[i]   = Color.HSVToRGB(hue, 0.70f, 1f);
+            size0[i]  = Random.Range(18f, 40f);          // 작은 색종이 조각
+            aspect[i] = Random.Range(0.5f, 1f);           // 살짝 납작하게 → 조각처럼 보임
+            spin[i]   = Random.Range(-540f, 540f);
+            life[i]   = RAINBOW_BURST_SEC * Random.Range(0.6f, 1f);
+
+            rt.anchoredPosition = origin;
+            rt.sizeDelta        = new Vector2(size0[i], size0[i] * aspect[i]);
+            img.color           = cols[i];
+        }
+
+        const float GRAVITY = 1500f;   // px/s² — 살짝 떨어지며 흩어지는 느낌
+        const float DRAG    = 2.6f;    // 초기 폭발 속도를 빠르게 죽인다
+
+        float elapsed = 0f;
+        while (elapsed < RAINBOW_BURST_SEC)
+        {
+            float dt = Time.deltaTime;
+            elapsed += dt;
+
+            for (int i = 0; i < RAINBOW_BURST_COUNT; i++)
+            {
+                if (imgs[i] == null) continue;
+                float t = elapsed / life[i];
+                if (t >= 1f)
+                {
+                    imgs[i].color = Color.clear;
+                    continue;
+                }
+
+                vel[i] *= Mathf.Max(0f, 1f - DRAG * dt);
+                vel[i]  = new Vector2(vel[i].x, vel[i].y - GRAVITY * dt);
+                pos[i] += vel[i] * dt;
+
+                rts[i].anchoredPosition = pos[i];
+                rts[i].localRotation    = Quaternion.Euler(0f, 0f, spin[i] * elapsed);
+
+                // 조각은 크기를 크게 흔들지 않는다. 튀어나올 때만 살짝 커지고 이후 유지 —
+                // 색종이 조각은 부풀었다 줄어들면 오히려 어색하다.
+                float scale = t < 0.12f ? Mathf.Lerp(0.6f, 1f, t / 0.12f) : 1f;
+                float sz    = size0[i] * scale;
+                rts[i].sizeDelta = new Vector2(sz, sz * aspect[i]);
+
+                float alpha = t < 0.15f ? t / 0.15f : 1f - (t - 0.15f) / 0.85f;
+                imgs[i].color = new Color(cols[i].r, cols[i].g, cols[i].b, Mathf.Clamp01(alpha));
+            }
+
+            // 화면 플래시: 0.18초 안에 확 밝아졌다가 꺼진다
+            float fl = Mathf.Clamp01(elapsed / 0.18f);
+            flashImg.color = new Color(1f, 1f, 1f, (1f - fl) * 0.55f);
+
+            // 십자 빔: 0.3초 동안 그리드 폭까지 뻗으며 옅어진다
+            float bt = Mathf.Clamp01(elapsed / 0.30f);
+            float bw = Mathf.Lerp(0f, 980f, bt * (2f - bt));   // ease-out
+            float ba = (1f - bt) * 0.9f;
+            beamH.rt.sizeDelta = new Vector2(bw, 118f);
+            beamH.img.color    = new Color(1f, 1f, 1f, ba);
+            beamV.rt.sizeDelta = new Vector2(118f, bw);
+            beamV.img.color    = new Color(1f, 1f, 1f, ba);
+
+            // 충격파 링: 흰색으로 얇게, 0.08초 시간차를 두고 빠르게 지나간다.
+            // 알파를 (1-t)³로 떨어뜨려 초반에만 살짝 보이고 금방 사라지게 한다.
+            for (int i = 0; i < RING_COUNT; i++)
+            {
+                if (ringRts[i] == null) continue;
+                float rt01 = (elapsed - i * 0.08f) / 0.38f;
+                if (rt01 < 0f || rt01 > 1f) { ringImgs[i].color = Color.clear; continue; }
+                float sz  = Mathf.Lerp(120f, 980f, rt01 * (2f - rt01));   // ease-out
+                float fade = (1f - rt01) * (1f - rt01) * (1f - rt01);
+                ringRts[i].sizeDelta = new Vector2(sz, sz);
+                ringImgs[i].color    = new Color(1f, 1f, 1f, fade * 0.5f);
+            }
+
+            yield return null;
+        }
+
+        Destroy(fxRoot);
+    }
+
+    // 십자 빔 한 줄 (가로/세로 공용). 크기는 호출 측이 매 프레임 늘린다.
+    (RectTransform rt, Image img) MakeBurstBeam(Transform parent, Vector2 pos)
+    {
+        var go = new GameObject("BurstBeam");
+        go.transform.SetParent(parent, false);
+        var img           = go.AddComponent<Image>();
+        img.sprite        = _spr110;
+        img.type          = Image.Type.Sliced;
+        img.color         = Color.clear;
+        img.raycastTarget = false;
+
+        var rt              = go.GetComponent<RectTransform>();
+        rt.anchorMin        = rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot            = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = pos;
+        rt.sizeDelta        = Vector2.zero;
+        return (rt, img);
+    }
+
+    // 클리어되는 칸 하나에서 튀는 작은 조각 몇 개. delay만큼 늦게 터져 파도처럼 번진다.
+    IEnumerator RainbowCellPop(Transform parent, Vector2 pos, float delay)
+    {
+        if (delay > 0f) yield return new WaitForSeconds(delay);
+        if (parent == null) yield break;
+
+        const int   N   = 5;
+        const float DUR = 0.4f;
+
+        var rts  = new RectTransform[N];
+        var imgs = new Image[N];
+        var vel  = new Vector2[N];
+        var cols = new Color[N];
+        var cur  = new Vector2[N];
+        var sz0  = new float[N];
+
+        var spr = _burstChipSprite != null ? _burstChipSprite : _spr110;
+
+        for (int i = 0; i < N; i++)
+        {
+            var go = new GameObject("pop");
+            go.transform.SetParent(parent, false);
+            var img           = go.AddComponent<Image>();
+            img.sprite        = spr;
+            img.raycastTarget = false;
+
+            var rt       = go.GetComponent<RectTransform>();
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot     = new Vector2(0.5f, 0.5f);
+
+            float ang = Random.Range(0f, Mathf.PI * 2f);
+            rts[i]  = rt;
+            imgs[i] = img;
+            cur[i]  = pos;
+            vel[i]  = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * Random.Range(180f, 520f);
+            cols[i] = Color.HSVToRGB(Random.value, 0.6f, 1f);
+            sz0[i]  = Random.Range(14f, 26f);
+            rt.localRotation = Quaternion.Euler(0f, 0f, Random.Range(0f, 360f));
+
+            rt.anchoredPosition = pos;
+            rt.sizeDelta        = new Vector2(sz0[i], sz0[i] * Random.Range(0.5f, 1f));
+            img.color           = cols[i];
+        }
+
+        float t = 0f;
+        while (t < DUR)
+        {
+            float dt = Time.deltaTime;
+            t += dt;
+            float k = t / DUR;
+
+            for (int i = 0; i < N; i++)
+            {
+                if (imgs[i] == null) continue;
+                vel[i] *= Mathf.Max(0f, 1f - 3.2f * dt);
+                cur[i] += vel[i] * dt;
+                rts[i].anchoredPosition = cur[i];
+
+                imgs[i].color = new Color(cols[i].r, cols[i].g, cols[i].b, 1f - k);
+            }
+            yield return null;
+        }
+    }
+
+    // 무지개 블럭이 살아있는 동안 심장박동처럼 맥동시킨다.
+    // RefreshGrid는 드래그 중 매 프레임 불려 스케일을 덮어쓸 수 있어 여기서만 건드린다.
+    void UpdateRainbowBlocks(float now)
+    {
+        if (_gm == null || _blockOverlays[0, 0] == null) return;
+
+        // 크기와 밝기를 같이 흔들어 "눌러 달라"는 신호를 준다
+        float wave  = Mathf.Sin(now * 7f);
+        float pulse = 1f + 0.16f * wave;
+        var   tint  = Color.Lerp(new Color(0.80f, 0.80f, 0.80f), Color.white, wave * 0.5f + 0.5f);
+
+        for (int r = 0; r < GameManager.SIZE; r++)
+            for (int c = 0; c < GameManager.SIZE; c++)
+            {
+                var img = _blockOverlays[r, c];
+                if (img == null) continue;
+
+                if (_gm.Board[r, c] == GameManager.RAINBOW_BLOCK_VAL)
+                {
+                    img.rectTransform.localScale = Vector3.one * pulse;
+                    img.color = tint;
+                }
+                else if (img.rectTransform.localScale != Vector3.one)
+                {
+                    // 무지개 블럭이 사라진 칸의 스케일을 되돌린다 (색은 RefreshGrid가 관리)
+                    img.rectTransform.localScale = Vector3.one;
+                }
+            }
     }
 
     void ShowColorSwapPopup()
@@ -1864,6 +2287,10 @@ public class InGameUI : MonoBehaviour
             RefreshToggleModeBackground();
             RefreshGauge();
         }
+        else if (ModeSession.SelectedMode == 3)
+        {
+            RefreshDiscoHearts();
+        }
         RefreshGrid();
         RefreshTray();
     }
@@ -1927,6 +2354,19 @@ public class InGameUI : MonoBehaviour
                         _blockOverlays[r, c].type   = Image.Type.Sliced;
                         _blockOverlays[r, c].color  = GOLD;
                     }
+                    continue;
+                }
+
+                // 디스코 무지개 블럭: 코드로 그린 색상환 스프라이트 (크기 맥동은 UpdateRainbowBlocks가 담당)
+                if (v == GameManager.RAINBOW_BLOCK_VAL)
+                {
+                    _cellImages[r, c].sprite = _spr110;
+                    _cellImages[r, c].type   = Image.Type.Sliced;
+                    _cellImages[r, c].color  = cellEmpty;
+                    _blockOverlays[r, c].sprite = _rainbowBlockSprite != null ? _rainbowBlockSprite : _spr110;
+                    _blockOverlays[r, c].type   = _rainbowBlockSprite != null
+                        ? Image.Type.Simple : Image.Type.Sliced;
+                    _blockOverlays[r, c].color  = Color.white;
                     continue;
                 }
 

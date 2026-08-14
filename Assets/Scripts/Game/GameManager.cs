@@ -12,9 +12,14 @@ public class GameManager : MonoBehaviour
     // 토글 모드 색상 인덱스 상수
     public const int TOGGLE_WHITE_IDX = 5;  // PieceData.Colors[5] → 화이트 블럭
     public const int TOGGLE_BLACK_IDX = 0;  // PieceData.Colors[0] → 블랙 블럭 (토글 모드에서 검정으로 렌더링)
-    public const int SPECIAL_BLOCK_VAL = 7; // 보드 특수값: 스페셜 블럭
+    public const int SPECIAL_BLOCK_VAL = 7; // 보드 특수값: 스페셜 블럭 (토글 모드)
+    public const int RAINBOW_BLOCK_VAL = 8; // 보드 특수값: 무지개 블럭 (디스코 모드)
 
-    public int[,] Board { get; private set; }   // 0=빈칸, 1~6=색상 인덱스+1, 7=스페셜 블럭
+    // 디스코 모드: 이 줄 수만큼 클리어될 때마다 무지개 블럭이 하나 생긴다.
+    // (UI의 하트 게이지 개수도 이 값을 따라간다)
+    public const int DISCO_LINES_PER_RAINBOW = 3;
+
+    public int[,] Board { get; private set; }   // 0=빈칸, 1~6=색상 인덱스+1, 7=스페셜 블럭, 8=무지개 블럭
     public int Score     { get; private set; }
     public int HighScore { get; private set; }
 
@@ -23,6 +28,9 @@ public class GameManager : MonoBehaviour
 
     // 토글 모드: 스페셜 블럭 게이지 (0~1, 2가 되면 스페셜 블럭 생성 후 리셋)
     public int SpecialGauge { get; private set; } = 0;
+
+    // 디스코 모드: 누적 클리어 줄 수 (DISCO_LINES_PER_RAINBOW마다 무지개 블럭 생성 후 차감)
+    public int DiscoLineGauge { get; private set; } = 0;
 
     // 가장 최근 클리어된 행/열 (이펙트용)
     public List<int> LastClearedRows { get; private set; } = new List<int>();
@@ -118,6 +126,13 @@ public class GameManager : MonoBehaviour
                     SpecialGauge = 0;
                 }
             }
+
+            // 디스코 모드: 클리어된 줄 수를 누적해 DISCO_LINES_PER_RAINBOW줄마다 무지개 블럭을 하나 놓는다
+            if (ModeSession.SelectedMode == 3)
+            {
+                DiscoLineGauge += lines;
+                AwardRainbowBlocks();
+            }
         }
         else
         {
@@ -177,8 +192,10 @@ public class GameManager : MonoBehaviour
             if (clearable) cols.Add(c);
         }
 
-        foreach (int r in rows) for (int c = 0; c < SIZE; c++) Board[r, c] = 0;
-        foreach (int c in cols) for (int r = 0; r < SIZE; r++) Board[r, c] = 0;
+        // 무지개 블럭은 줄 클리어로 없어지지 않는다 — 탭했을 때만 사라진다.
+        // (줄을 채우는 데는 쓰이므로 클리어 판정에는 그대로 포함된다.)
+        foreach (int r in rows) for (int c = 0; c < SIZE; c++) if (Board[r, c] != RAINBOW_BLOCK_VAL) Board[r, c] = 0;
+        foreach (int c in cols) for (int r = 0; r < SIZE; r++) if (Board[r, c] != RAINBOW_BLOCK_VAL) Board[r, c] = 0;
 
         LastClearedRows.AddRange(rows);
         LastClearedCols.AddRange(cols);
@@ -207,6 +224,78 @@ public class GameManager : MonoBehaviour
         if (candidates.Count == 0) return;
         var pick = candidates[Random.Range(0, candidates.Count)];
         Board[pick.Item1, pick.Item2] = SPECIAL_BLOCK_VAL;
+    }
+
+    // ── 디스코 무지개 블럭 ──────────────────────────────────────
+    /// <summary>게이지가 찬 만큼 무지개 블럭을 놓는다. 놓을 자리가 없으면 게이지를 남겨 다음 기회로 넘긴다.</summary>
+    void AwardRainbowBlocks()
+    {
+        while (DiscoLineGauge >= DISCO_LINES_PER_RAINBOW)
+        {
+            if (!SpawnRainbowBlock()) break;
+            DiscoLineGauge -= DISCO_LINES_PER_RAINBOW;
+        }
+    }
+
+    /// <summary>빈 칸 하나에 무지개 블럭을 놓는다. 자리가 없으면 false.</summary>
+    bool SpawnRainbowBlock()
+    {
+        // 방금 클리어된 자리를 우선 후보로 삼아 "줄이 터진 곳에서 나타나는" 인상을 준다.
+        var candidates = new List<(int, int)>();
+        foreach (int r in LastClearedRows)
+            for (int c = 0; c < SIZE; c++)
+                if (Board[r, c] == 0) candidates.Add((r, c));
+        foreach (int c in LastClearedCols)
+            for (int r = 0; r < SIZE; r++)
+                if (Board[r, c] == 0 && !candidates.Contains((r, c)))
+                    candidates.Add((r, c));
+
+        // 클리어 자리가 이미 다 찼으면 보드의 아무 빈 칸이나
+        if (candidates.Count == 0)
+            for (int r = 0; r < SIZE; r++)
+                for (int c = 0; c < SIZE; c++)
+                    if (Board[r, c] == 0) candidates.Add((r, c));
+
+        if (candidates.Count == 0) return false;
+
+        var pick = candidates[Random.Range(0, candidates.Count)];
+        Board[pick.Item1, pick.Item2] = RAINBOW_BLOCK_VAL;
+        return true;
+    }
+
+    /// <summary>
+    /// 무지개 블럭 발동: 해당 칸의 가로·세로 한 줄을 통째로 비운다.
+    /// 같은 줄 위의 다른 무지개 블럭은 남는다 (탭으로만 없어진다는 규칙 유지).
+    /// 이펙트용으로 LastClearedRows/Cols를 채워 두므로 호출 측에서 클리어 연출을 그대로 쓸 수 있다.
+    /// </summary>
+    public bool ActivateRainbowBlock(int row, int col)
+    {
+        if (row < 0 || row >= SIZE || col < 0 || col >= SIZE) return false;
+        if (Board[row, col] != RAINBOW_BLOCK_VAL) return false;
+
+        Board[row, col] = 0;   // 발동한 본인은 먼저 치워야 아래 루프에서 살아남지 않는다
+        for (int c = 0; c < SIZE; c++) if (Board[row, c] != RAINBOW_BLOCK_VAL) Board[row, c] = 0;
+        for (int r = 0; r < SIZE; r++) if (Board[r, col] != RAINBOW_BLOCK_VAL) Board[r, col] = 0;
+
+        LastClearedRows.Clear();
+        LastClearedCols.Clear();
+        LastClearedRows.Add(row);
+        LastClearedCols.Add(col);
+
+        // 가로+세로 = 2줄로 쳐서 기존 콤보 점수 체계를 그대로 따른다.
+        // 다만 이 2줄은 DiscoLineGauge에 넣지 않는다 — 넣으면 무지개 블럭이 스스로를
+        // 다시 불러내는 되먹임이 생긴다(3줄 기준이면 탭 두 번에 새 블럭이 나온다).
+        _combo++;
+        Score += 2 * 100 * _combo;
+        if (Score > HighScore)
+        {
+            HighScore = Score;
+            PlayerPrefs.SetInt(_mk + "HighScore", HighScore);
+        }
+
+        SaveGame();
+        OnStateChanged?.Invoke();
+        return true;
     }
 
     // ── 스페셜 블럭 사용: 색상 일괄 변환 ───────────────────────
@@ -358,6 +447,14 @@ public class GameManager : MonoBehaviour
                     if (Board[r, c] == SPECIAL_BLOCK_VAL) return true;
         }
 
+        // 디스코 모드: 무지개 블럭을 탭하면 가로세로가 비므로 아직 수가 남아있다
+        if (ModeSession.SelectedMode == 3)
+        {
+            for (int r = 0; r < SIZE; r++)
+                for (int c = 0; c < SIZE; c++)
+                    if (Board[r, c] == RAINBOW_BLOCK_VAL) return true;
+        }
+
         for (int i = 0; i < 3; i++)
         {
             if (CurrentPieces[i].placed) continue;
@@ -375,10 +472,10 @@ public class GameManager : MonoBehaviour
     /// </summary>
     public void Revive()
     {
-        // 하단 3행 클리어
+        // 하단 3행 클리어 (무지개 블럭은 탭으로만 없어진다는 규칙을 여기서도 지킨다)
         for (int r = SIZE - 3; r < SIZE; r++)
             for (int c = 0; c < SIZE; c++)
-                Board[r, c] = 0;
+                if (Board[r, c] != RAINBOW_BLOCK_VAL) Board[r, c] = 0;
 
         _combo = 0;
         GenerateNewPieces();
@@ -394,6 +491,7 @@ public class GameManager : MonoBehaviour
         _combo             = 0;
         ToggleCurrentColor = 0;
         SpecialGauge       = 0;
+        DiscoLineGauge     = 0;
         GenerateNewPieces();
         ClearSave();
         OnStateChanged?.Invoke();
@@ -424,6 +522,9 @@ public class GameManager : MonoBehaviour
             PlayerPrefs.SetInt(_mk + "save_toggle_color",   ToggleCurrentColor);
             PlayerPrefs.SetInt(_mk + "save_special_gauge",  SpecialGauge);
         }
+        // 디스코 모드: 무지개 블럭 게이지 저장
+        if (ModeSession.SelectedMode == 3)
+            PlayerPrefs.SetInt(_mk + "save_disco_gauge", DiscoLineGauge);
 
         PlayerPrefs.SetInt(_mk + "save_flag", 1);
         PlayerPrefs.Save();
@@ -449,6 +550,11 @@ public class GameManager : MonoBehaviour
             SpecialGauge       = Mathf.Clamp(PlayerPrefs.GetInt(_mk + "save_special_gauge", 0), 0, 1);
         }
 
+        // 디스코 모드: 무지개 블럭 게이지 복원
+        if (ModeSession.SelectedMode == 3)
+            DiscoLineGauge = Mathf.Clamp(
+                PlayerPrefs.GetInt(_mk + "save_disco_gauge", 0), 0, DISCO_LINES_PER_RAINBOW - 1);
+
         Score  = PlayerPrefs.GetInt(_mk + "save_score", 0);
         _combo = PlayerPrefs.GetInt(_mk + "save_combo", 0);
         for (int i = 0; i < 3; i++)
@@ -469,6 +575,7 @@ public class GameManager : MonoBehaviour
         PlayerPrefs.DeleteKey(_mk + "save_combo");
         PlayerPrefs.DeleteKey(_mk + "save_toggle_color");
         PlayerPrefs.DeleteKey(_mk + "save_special_gauge");
+        PlayerPrefs.DeleteKey(_mk + "save_disco_gauge");
         for (int i = 0; i < 3; i++)
         {
             PlayerPrefs.DeleteKey(_mk + $"save_p{i}_shape");
