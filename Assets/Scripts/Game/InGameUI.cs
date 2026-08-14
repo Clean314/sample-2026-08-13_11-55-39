@@ -211,7 +211,9 @@ public class InGameUI : MonoBehaviour
 
         // 오디오 소스 생성 및 클립 로드
         _audioSource = gameObject.AddComponent<AudioSource>();
-        var clip = Resources.Load<AudioClip>(ModeConfig.Current.sfxClear);
+        // sfxClear는 null일 수 있다(토글 모드) — 클립이 없으면 재생 지점들이 알아서 건너뛴다.
+        var sfxClearPath = ModeConfig.Current.sfxClear;
+        var clip = string.IsNullOrEmpty(sfxClearPath) ? null : Resources.Load<AudioClip>(sfxClearPath);
         if (clip != null) _audioSource.clip = clip;
 
         // 모드에 맞는 BGM으로 전환
