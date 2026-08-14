@@ -152,10 +152,10 @@ public class InGameUI : MonoBehaviour
     const float  TUNNEL2_SPEED_MUL = 2f;   // ── 조정 손잡이: 1차 대비 링 속도 ──
     const float  TUNNEL2_SPIN_MUL  = 0.3f;   // ── 조정 손잡이: 1차 대비 회전 속도 ──
 
-    // 4분 20초부터 흰 터널이 알록달록해진다(즉시 전환).
+    // 4분 36.5초부터 흰 터널이 알록달록해진다(즉시 전환). 곡 길이가 5:24.19라 약 47.7초 유지된다.
     // 색은 터널 축 위의 절대 위치로 정하므로 색 띠가 링에 붙어 같이 밀려오고,
     // 동시에 시간에 따라 색상환 전체가 계속 돌아 가만히 있어도 색이 변한다.
-    const double TUNNEL_RAINBOW_START = 265;   
+    const double TUNNEL_RAINBOW_START = 276.5;   
     const float  TUNNEL_RAINBOW_PER_Z = 0.12f;   // ── 조정 손잡이: z 1당 색상환 회전 비율(띠 촘촘함) ──
     const float  TUNNEL_RAINBOW_SPEED = 0.80f;   // ── 조정 손잡이: 초당 색상환 회전수(변색 속도) ──
 
