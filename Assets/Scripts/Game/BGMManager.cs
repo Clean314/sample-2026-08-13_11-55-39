@@ -71,6 +71,21 @@ public class BGMManager : MonoBehaviour
         if (!_source.isPlaying) _source.Play();
     }
 
+    /// <summary>현재 재생 위치(초). 일시 정지 중에도 멈춘 자리를 그대로 돌려줍니다.
+    /// BeatTracker와 같은 식(timeSamples / frequency)을 써서 연출이 보는 시각과 어긋나지 않습니다.</summary>
+    public double PositionSec =>
+        _source.clip != null ? (double)_source.timeSamples / _source.clip.frequency : 0.0;
+
+    /// <summary>재생을 그 자리에서 멈춥니다. Resume으로 같은 위치에서 이어집니다.
+    /// (Stop과 달리 위치를 잃지 않는다. 디스코 모드가 광과민성 경고 동안 무음을 만드는 데 쓴다.)</summary>
+    public void Pause() => _source.Pause();
+
+    /// <summary>Pause로 멈춘 재생을 이어갑니다. 멈춘 적이 없으면 아무 일도 하지 않습니다.</summary>
+    public void Resume()
+    {
+        if (_source.clip != null) _source.UnPause();
+    }
+
     /// <summary>씬 어디서든 호출해도 인스턴스를 반환하거나 새로 생성합니다.</summary>
     public static BGMManager GetOrCreate()
     {

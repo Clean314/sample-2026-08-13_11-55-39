@@ -59,6 +59,12 @@ public class LocalizationManager
         { "swap_w2b",      new[] { "화이트  →  블랙",     "White  →  Black"      } },
         { "cancel",        new[] { "취소",                "Cancel"               } },
 
+        // ── 디스코 모드 광과민성 경고 ─────────────────────────────
+        // 시작 직후 2초만 떴다 사라지므로 설명은 두 줄을 넘기지 않는다.
+        { "photo_warn_title", new[] { "광과민성 발작 주의",  "Photosensitivity Warning" } },
+        { "photo_warn_desc",  new[] { "이 모드에는 밝은 빛과 빠른 색 변화가 있습니다.\n불편함을 느끼면 플레이를 중단해 주세요.",
+                                                          "This mode contains flashing lights and\nrapid color changes. Stop playing if you feel unwell." } },
+
         // ── 네트워크 연결 안내 ────────────────────────────────────
         { "no_network",    new[] { "인터넷에 연결되어 있지 않습니다.\n네트워크 연결을 확인해 주세요.",
                                                           "No internet connection.\nPlease check your network." } },

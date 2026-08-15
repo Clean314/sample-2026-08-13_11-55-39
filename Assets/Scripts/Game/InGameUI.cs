@@ -192,6 +192,38 @@ public class InGameUI : MonoBehaviour
     const float  TUNNEL_RAINBOW_PER_Z = 0.12f;   // ── 조정 손잡이: z 1당 색상환 회전 비율(띠 촘촘함) ──
     const float  TUNNEL_RAINBOW_SPEED = 0.80f;   // ── 조정 손잡이: 초당 색상환 회전수(변색 속도) ──
 
+    // ── 터널 빗방울 (곡 마지막) ──────────────────────────────────────
+    // 4분 52.6초부터 곡 끝까지, 터널 안을 알록달록한 작은 점이 스쳐 지나간다.
+    // 링과 같은 원근식(FOCAL/z)과 같은 곡률(TunnelOffset)을 써서 같은 공간에 있는 것처럼 보인다 —
+    // 점이 링을 따라 같이 휘고, 깊이에 따라 크기·속도가 갈려 거리감이 생긴다.
+    const double RAIN_START      = 292.6;   // ── 조정 손잡이: 시작 시각(4분 52.6초) ──
+    const int    RAIN_COUNT      = 90;      // ── 조정 손잡이: 점 개수 ──
+    const float  RAIN_SPEED_MUL  = 1.7f;    // ── 조정 손잡이: 링 대비 다가오는 속도 ──
+    const float  RAIN_WORLD_SIZE = 0.010f;  // 점의 월드 지름 → 화면 크기 = 이 값 × FOCAL / z
+    const float  RAIN_MIN_PX     = 2f;      // 멀리서 1px 밑으로 내려가면 깜빡이므로 하한
+    const float  RAIN_FALL       = 0.06f;   // ── 조정 손잡이: 월드 낙하 속도(단위/초) ──
+    const float  RAIN_SWAY       = 0.012f;  // ── 조정 손잡이: 좌우로 흩날리는 폭(월드) ──
+    const float  RAIN_FADE_Z     = 1.6f;    // 이 깊이부터 카메라를 스치며 옅어진다
+
+    // ── 곡 마무리와 루프 이음 ────────────────────────────────────────
+    // 곡이 끝나면 BGM은 loop=true로 0초로 되감긴다(BGMManager). 그냥 두면 알록달록한 터널이
+    // 한 프레임 만에 도입부 셀 배경으로 튀므로, 양쪽 끝을 검정으로 만들어 이어 붙인다.
+    //   ENDING_BLACK_START~  터널·빗방울이 옅어지며 화면이 검정으로 정리된다(배경은 이미 검정).
+    //   0~LOOP_FADE_SEC      되감긴 직후 그 검정을 걷어내며 도입부가 드러난다.
+    // 배경 자체는 BLACK2_FULL 이후 계속 검정이라 여기서는 그 위 레이어만 지우면 된다.
+    const double ENDING_BLACK_START = 308.6;  // ── 조정 손잡이: 암전 시작(5분 8.6초) ──
+    const float  ENDING_FADE_SEC    = 2.5f;   // ── 조정 손잡이: 암전에 걸리는 시간 ──
+    const float  LOOP_FADE_SEC      = 2.5f;   // ── 조정 손잡이: 되감긴 뒤 밝아지는 시간 ──
+
+    RectTransform   _rainLayerRt;
+    RectTransform[] _rainRts;
+    Image[]         _rainImgs;
+    float[]         _rainZ;
+    float[]         _rainX, _rainY;   // 터널 축 기준 월드 오프셋 (벽 = 반지름 0.5)
+    float[]         _rainHue;         // 점마다 다른 색상환 위치
+    float[]         _rainPhase;       // 흩날림 위상
+    Sprite          _rainDotSprite;
+
     RectTransform[] _ringRts;
     Image[]         _ringImgs;
     float[]         _ringZ;
@@ -263,6 +295,21 @@ public class InGameUI : MonoBehaviour
         // 모드에 맞는 BGM으로 전환
         BGMManager.GetOrCreate().PlayBGM(ModeConfig.Current.bgmClip);
 
+        // 디스코 모드는 곡 재생 위치가 곧 연출 타임라인이다(밤거리 → 터널 → 암전).
+        // 그런데 메인 메뉴에서 모드를 넘겨보는 동안 이미 disco 클립이 돌고 있어서,
+        // PlayBGM이 "같은 클립"이라며 그냥 지나친다 → 그대로 두면 메뉴에서 흘러간
+        // 아무 지점에서 시작한다. 새 판이면 처음으로, 이어하기면 저장해 둔 자리로 맞춘다.
+        if (ModeSession.SelectedMode == 3)
+        {
+            BGMManager.Instance?.Seek(_gm.LoadedFromSave ? _gm.SavedBgmSec : 0.0);
+
+            // 광과민성 경고가 걷힐 때까지는 무음. 아직 곡이 시작된 게 아니다.
+            // 연출이 전부 재생 위치로 계산되므로, 여기서 곡이 돌면 플레이어가 보지도 못한
+            // 도입부가 경고 뒤에서 그냥 지나가 버린다. 재개는 PhotoWarningRoutine이 맡는다.
+            // (Seek이 Play를 부를 수 있으므로 되감기 다음에 멈춰야 한다.)
+            BGMManager.Instance?.Pause();
+        }
+
         // 광고 배너 표시
         AdManager.GetOrCreate().ShowBanner();
 
@@ -307,6 +354,9 @@ public class InGameUI : MonoBehaviour
 
             // 모든 레이아웃이 끝난 뒤에 제자리를 기록해야 한다
             CollectShakeTargets();
+
+            // 경고는 맨 마지막에 세워야 다른 레이어들 위로 올라간다(sibling 순서 = 그리는 순서).
+            BuildPhotoWarning();
         }
 
         RefreshUI();
@@ -315,6 +365,10 @@ public class InGameUI : MonoBehaviour
     void OnDestroy()
     {
         if (_gm != null) _gm.OnStateChanged -= OnGameStateChanged;
+
+        // 광과민성 경고 도중에 씬을 떠나면 재개를 맡은 코루틴이 같이 죽어,
+        // BGM이 멈춘 채로 메뉴까지 따라간다. 멈춘 적 없으면 무시되므로 무조건 불러도 안전하다.
+        BGMManager.Instance?.Resume();
     }
 
     void OnApplicationPause(bool pause)
@@ -801,7 +855,10 @@ public class InGameUI : MonoBehaviour
         if (_beatTracker != null)
         {
             double t = _beatTracker.PlaybackSec;
-            if      (t >= 48.5 && t < 49.0)  blackout = (float)((t - 48.5) * 2.0);
+            // 곡이 루프로 되감긴 직후. 곡 끝을 검정으로 마무리했으므로 여기서 검정을 걷어
+            // 이어 붙인다. 이 분기가 맨 앞이라 아래 구간들과 겹칠 일이 없다(LOOP_FADE_SEC ≪ 48.5).
+            if      (t < LOOP_FADE_SEC)      blackout = 1f - (float)(t / LOOP_FADE_SEC);
+            else if (t >= 48.5 && t < 49.0)  blackout = (float)((t - 48.5) * 2.0);
             else if (t >= 49.0 && t < 100.1) blackout = 1f;
             else if (t >= 100.1 && t < 100.6) blackout = (float)((100.6 - t) * 2.0);
             // 2차 터널 진입: 검정으로 덮은 뒤 끝까지 검정 배경을 유지한다(터널이 그 위에 뜬다).
@@ -1057,6 +1114,107 @@ public class InGameUI : MonoBehaviour
         rt.offsetMax    = Vector2.zero;
     }
 
+    // ── 광과민성 경고 (디스코 모드 진입 직후) ──────────
+    // 화면 전체를 불투명하게 덮는다. 반투명으로 하면 경고를 읽는 동안 뒤에서
+    // 깜빡이는 연출이 그대로 비친다 — 경고의 뜻이 없어진다.
+    //
+    // 검정 판은 첫 프레임부터 불투명하고, 페이드 인은 그 위의 아이콘·문구에만 건다.
+    // 판까지 같이 흐리게 시작하면 그 시간만큼 그리드·트레이가 먼저 보인다.
+    // (배경은 blackout이 이미 검정으로 만들지만, 그리드와 트레이는 그 대상이 아니다.)
+    const float WARN_FADE_IN  = 0.35f;  // ── 조정 손잡이: 문구가 떠오르는 시간(초) ──
+    const float WARN_HOLD     = 3.0f;   // ── 조정 손잡이: 다 보인 채 머무르는 시간(초) ──
+    const float WARN_FADE_OUT = 0.5f;   // ── 조정 손잡이: 사라지는 시간(초) ──
+
+    void BuildPhotoWarning()
+    {
+        var loc = LocalizationManager.Instance;
+
+        var go = new GameObject("PhotoWarning");
+        go.transform.SetParent(_canvas.transform, false);
+        go.transform.SetAsLastSibling();   // sibling 순서 = 그리는 순서. 맨 위여야 전부 덮는다.
+
+        var backdrop   = go.AddComponent<Image>();
+        backdrop.color = new Color(0.04f, 0.03f, 0.07f, 1f);
+
+        var rt       = go.GetComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+
+        // 아이콘·문구만 담는 자식. 판과 알파를 따로 굴리려고 한 겹 더 둔다.
+        var contentGo = new GameObject("Content");
+        contentGo.transform.SetParent(go.transform, false);
+        var contentRt       = contentGo.AddComponent<RectTransform>();
+        contentRt.anchorMin = Vector2.zero;
+        contentRt.anchorMax = Vector2.one;
+        contentRt.offsetMin = Vector2.zero;
+        contentRt.offsetMax = Vector2.zero;
+        var contentCg   = contentGo.AddComponent<CanvasGroup>();
+        contentCg.alpha = 0f;
+
+        // caution.png는 흰 실루엣 + 투명 배경이라 어두운 backdrop 위에서 그대로 읽힌다.
+        var iconSprite = LoadSpriteFromPath("Sprites/Logo/caution");
+        if (iconSprite != null)
+        {
+            var iconGo = new GameObject("Icon");
+            iconGo.transform.SetParent(contentGo.transform, false);
+            var img            = iconGo.AddComponent<Image>();
+            img.sprite         = iconSprite;
+            img.preserveAspect = true;
+            img.raycastTarget  = false;
+            var irt              = iconGo.GetComponent<RectTransform>();
+            irt.anchorMin        = irt.anchorMax = new Vector2(0.5f, 0.5f);
+            irt.pivot            = new Vector2(0.5f, 0.5f);
+            irt.sizeDelta        = new Vector2(340, 340);
+            irt.anchoredPosition = new Vector2(0, 210);
+        }
+
+        AddText(contentGo.transform, loc.Get("photo_warn_title"), 62, Color.white,
+            new Vector2(0, -60), new Vector2(940, 100));
+        AddText(contentGo.transform, loc.Get("photo_warn_desc"), 38, new Color(0.80f, 0.80f, 0.86f),
+            new Vector2(0, -190), new Vector2(900, 180));
+
+        // 경고가 떠 있는 동안 뒤쪽 보드로 터치가 새지 않게 막는다.
+        // 게임 자체는 이미 시작돼 있어서, 막지 않으면 경고를 읽다가 조각이 놓인다.
+        // alpha는 1로 시작한다 — 첫 프레임부터 화면을 가려야 한다.
+        var cg            = go.AddComponent<CanvasGroup>();
+        cg.alpha          = 1f;
+        cg.blocksRaycasts = true;
+
+        StartCoroutine(PhotoWarningRoutine(cg, contentCg));
+    }
+
+    IEnumerator PhotoWarningRoutine(CanvasGroup panelCg, CanvasGroup contentCg)
+    {
+        // 검정 판은 이미 화면을 덮고 있고, 여기서는 문구만 떠오른다.
+        for (float e = 0f; e < WARN_FADE_IN; e += Time.deltaTime)
+        {
+            contentCg.alpha = e / WARN_FADE_IN;
+            yield return null;
+        }
+        contentCg.alpha = 1f;
+
+        yield return new WaitForSeconds(WARN_HOLD);
+
+        // 사라지는 동안에는 밑을 다시 만질 수 있게 풀어 준다.
+        // 나갈 때는 판째로 걷는다. CanvasGroup은 중첩되면 알파가 곱해지므로
+        // contentCg를 1로 둔 채 판만 내려도 문구가 같이 옅어진다.
+        panelCg.blocksRaycasts = false;
+        for (float e = 0f; e < WARN_FADE_OUT; e += Time.deltaTime)
+        {
+            panelCg.alpha = 1f - e / WARN_FADE_OUT;
+            yield return null;
+        }
+
+        // 사라진 뒤에는 남겨 둘 이유가 없다.
+        Destroy(panelCg.gameObject);
+
+        // 여기가 곡의 실질적인 0초다. 경고가 완전히 걷힌 뒤에 시작해야
+        // 연출 타임라인의 시작과 플레이어가 화면을 보기 시작하는 순간이 맞아떨어진다.
+        BGMManager.Instance?.Resume();
+    }
+
     // 동심원 링 (속이 빈 원, 부드러운 경계)
     Sprite MakeRingSprite(int size, float strokeRatio)
     {
@@ -1181,6 +1339,128 @@ public class InGameUI : MonoBehaviour
 
             _ringZ[i] = Mathf.Lerp(TUNNEL_Z_NEAR, TUNNEL_Z_FAR, (i + 0.5f) / TUNNEL_RINGS);
         }
+
+        // 빗방울은 링보다 나중에 만들어야 링 위에 그려진다
+        BuildRainLayer(layerGo);
+    }
+
+    void BuildRainLayer(GameObject parent)
+    {
+        _rainDotSprite = MakeDotSprite(32);
+
+        _rainRts   = new RectTransform[RAIN_COUNT];
+        _rainImgs  = new Image[RAIN_COUNT];
+        _rainZ     = new float[RAIN_COUNT];
+        _rainX     = new float[RAIN_COUNT];
+        _rainY     = new float[RAIN_COUNT];
+        _rainHue   = new float[RAIN_COUNT];
+        _rainPhase = new float[RAIN_COUNT];
+
+        var go = new GameObject("TunnelRainLayer");
+        go.transform.SetParent(parent.transform, false);
+        var rt          = go.AddComponent<RectTransform>();
+        rt.anchorMin    = rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot        = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta    = Vector2.zero;
+        _rainLayerRt    = rt;
+        go.SetActive(false);   // RAIN_START 전에는 갱신도 렌더도 하지 않는다
+
+        for (int i = 0; i < RAIN_COUNT; i++)
+        {
+            var dot = new GameObject($"Rain_{i}");
+            dot.transform.SetParent(go.transform, false);
+            var img           = dot.AddComponent<Image>();
+            img.sprite        = _rainDotSprite;
+            img.raycastTarget = false;
+            _rainImgs[i]      = img;
+
+            var drt       = dot.GetComponent<RectTransform>();
+            drt.anchorMin = drt.anchorMax = new Vector2(0.5f, 0.5f);
+            drt.pivot     = new Vector2(0.5f, 0.5f);
+            _rainRts[i]   = drt;
+
+            // z를 깊이 방향으로 고르게 흩어 둔다. 전부 zFar에서 시작하면 켜지는 순간
+            // 한 겹이 통째로 몰려와 "벽이 다가오는" 것처럼 보인다.
+            SpawnRainDot(i, Mathf.Lerp(TUNNEL_Z_NEAR, TUNNEL_Z_FAR, (i + 0.5f) / RAIN_COUNT));
+        }
+    }
+
+    // 점 하나를 깊이 z의 단면 어딘가에 새로 놓는다.
+    void SpawnRainDot(int i, float z)
+    {
+        // 터널 벽(반지름 0.5) 안쪽에 뿌리되 반지름에 sqrt를 씌운다.
+        // 안 씌우면 넓이가 아니라 반지름 기준으로 균등해져 정중앙만 빽빽해진다.
+        float ang = Random.Range(0f, Mathf.PI * 2f);
+        float rad = Mathf.Sqrt(Random.value) * 0.46f;
+        _rainX[i]     = Mathf.Cos(ang) * rad;
+        _rainY[i]     = Mathf.Sin(ang) * rad;
+        _rainZ[i]     = z;
+        _rainHue[i]   = Random.value;
+        _rainPhase[i] = Random.Range(0f, Mathf.PI * 2f);
+    }
+
+    // 터널 링과 같은 원근·곡률을 쓴다. 다른 건 점이 축에서 떨어진 만큼 옆으로 밀린다는 것뿐:
+    //     화면 = TunnelOffset(z) + 월드오프셋 × (FOCAL / z)
+    // 링이 지름 1의 원이라 sizeDelta가 FOCAL/z인 것과 같은 식이다.
+    void UpdateTunnelRain(float now, double playbackSec, float intensity)
+    {
+        if (_rainLayerRt == null) return;
+
+        bool on = playbackSec >= RAIN_START && intensity > 0f;
+        if (_rainLayerRt.gameObject.activeSelf != on) _rainLayerRt.gameObject.SetActive(on);
+        if (!on) return;
+
+        float dz = TUNNEL_SPEED * TUNNEL2_SPEED_MUL * RAIN_SPEED_MUL * Time.deltaTime;
+
+        for (int i = 0; i < RAIN_COUNT; i++)
+        {
+            _rainZ[i] -= dz;
+            _rainY[i] -= RAIN_FALL * Time.deltaTime;   // 비처럼 아래로 흘러내린다
+            if (_rainZ[i] <= TUNNEL_Z_NEAR) SpawnRainDot(i, TUNNEL_Z_FAR);
+
+            float z     = _rainZ[i];
+            float scale = TUNNEL_FOCAL / z;
+            float sway  = Mathf.Sin(now * 1.7f + _rainPhase[i]) * RAIN_SWAY;
+
+            _rainRts[i].anchoredPosition =
+                TunnelOffset(z) + new Vector2((_rainX[i] + sway) * scale, _rainY[i] * scale);
+
+            float px = Mathf.Max(RAIN_MIN_PX, RAIN_WORLD_SIZE * scale);
+            _rainRts[i].sizeDelta = new Vector2(px, px);
+
+            // 멀리서 들어올 때 페이드인, 카메라를 스칠 때 페이드아웃.
+            // 스치는 쪽을 안 지우면 화면을 덮는 큰 원반이 되어 눈에 거슬린다.
+            float fadeIn  = Mathf.InverseLerp(TUNNEL_Z_FAR, TUNNEL_Z_FAR - 2f, z);
+            float fadeOut = Mathf.InverseLerp(TUNNEL_Z_NEAR, RAIN_FADE_Z, z);
+            float a       = Mathf.Clamp01(fadeIn) * Mathf.Clamp01(fadeOut) * intensity;
+
+            // 점마다 색상환 위치가 달라 알록달록하고, 시간 항이 더해져 천천히 변색된다.
+            var c = Color.HSVToRGB(Mathf.Repeat(_rainHue[i] + now * 0.12f, 1f), 0.75f, 1f);
+            _rainImgs[i].color = new Color(c.r, c.g, c.b, a);
+        }
+    }
+
+    // 가장자리를 알파로 깎은 원. MakeRoundedSprite는 경계가 딱 떨어져서
+    // 몇 px짜리로 줄이면 각져 보이므로 파티클용은 따로 굽는다.
+    Sprite MakeDotSprite(int size)
+    {
+        var tex = new Texture2D(size, size, TextureFormat.ARGB32, false);
+        tex.filterMode = FilterMode.Bilinear;
+        var   px  = new Color32[size * size];
+        float ctr = (size - 1) * 0.5f;
+        float rad = size * 0.5f;
+
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                float dx = x - ctr, dy = y - ctr;
+                float a  = Mathf.Clamp01((rad - Mathf.Sqrt(dx * dx + dy * dy)) / 1.5f);
+                px[y * size + x] = new Color32(255, 255, 255, (byte)(a * 255f));
+            }
+
+        tex.SetPixels32(px);
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
     }
 
     // 구간 i가 가진 곡률 벡터. 방향은 좌/우로 번갈아 뒤집히므로 "한쪽으로 길게 감다가
@@ -1264,6 +1544,11 @@ public class InGameUI : MonoBehaviour
         else if (playbackSec >= 50.5 && playbackSec < 96.7) intensity = 1f;
         else if (second) intensity = Mathf.Clamp01((float)((playbackSec - TUNNEL2_START) / TUNNEL2_FADE_SEC));
 
+        // 곡 마무리 암전. 배경은 BLACK2_FULL부터 이미 검정이므로 그 위의 터널·빗방울만
+        // 지우면 화면이 통째로 검게 남는다. 빗방울도 이 intensity를 그대로 받는다.
+        if (playbackSec >= ENDING_BLACK_START)
+            intensity *= 1f - Mathf.Clamp01((float)((playbackSec - ENDING_BLACK_START) / ENDING_FADE_SEC));
+
         // 페이즈별 색/회전속도 (즉시 전환, 그라데이션 없음)
         Color baseColor   = TUNNEL_COLOR;
         float angularDeg  = 0f;
@@ -1335,6 +1620,8 @@ public class InGameUI : MonoBehaviour
             for (int i = 0; i < _spokeImgs.Length; i++)
                 _spokeImgs[i].color = new Color(c.r, c.g, c.b, spokeAlpha);
         }
+
+        UpdateTunnelRain(now, playbackSec, intensity);
     }
 
     // 깊이 z에 있는 단면의 색. 터널 축 위의 절대 위치(travel + z)로 색상을 정하므로
