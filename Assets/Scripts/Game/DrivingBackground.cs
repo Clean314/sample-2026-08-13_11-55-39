@@ -52,8 +52,14 @@ public class DrivingBackground : MonoBehaviour
     // 마지막 전환만은 페이드다. 하늘·건물이 이 시간에 걸쳐 엷어지며 아래 셀 배경이 드러난다.
     const float COLORFUL_FADE_SEC = 2.5f;   // ── 조정 손잡이: 셀 배경으로 넘어가는 페이드 길이 ──
 
-    // 화면이 완전히 검게 덮인 시각. 이때 바닥·자동차까지 통째로 정리하고 2차 터널에 자리를 넘긴다.
-    // (InGameUI의 검정 램프가 이 시각에 풀 블랙에 도달하므로 사라지는 게 보이지 않는다)
+    // 화면이 검게 덮이기 시작하는 시각. ── 조정 손잡이: 2차 터널 진입 타이밍 ──
+    // 이 배경은 sibling 순서상 InGameUI의 검정 배경(_bgImage, sibling 0)보다 위에 깔리므로,
+    // 배경만 검게 만들어서는 바닥·자동차가 그대로 남는다. 여기서 루트 CanvasGroup을 같은 램프로
+    // 내려 이미 검어진 배경 위로 녹아 없어지게 한다. InGameUI.BLACK2_START가 이 값을 참조하므로
+    // 이 숫자 하나만 옮기면 배경 검정·디스코 셀·바닥·자동차가 다 같이 따라온다.
+    public const double BLACKOUT_START = 242.0;
+
+    // 완전히 검어져 배경을 통째로 정리하고 2차 터널에 자리를 넘기는 시각.
     public const double DISAPPEAR_AT = 245.2;   // 4분 5.2초
 
     enum ScenePhase { Sunset, Morning, Night, Colorful }
@@ -339,6 +345,16 @@ public class DrivingBackground : MonoBehaviour
                         : t >= MORNING_START  ? ScenePhase.Morning
                         :                       ScenePhase.Sunset;
         if (want != _phase) ApplyPhase(want);
+
+        // BLACKOUT_START부터 배경 전체가 엷어진다. 그 아래에는 InGameUI가 같은 램프로 검게 만든
+        // _bgImage가 깔려 있어, 바닥·자동차가 검정에 잠기듯 사라진다.
+        // (아래 sceneryAlpha와 달리 이건 루트 그룹이라 하늘·건물까지 전부 포함한다.
+        //  CanvasGroup은 중첩되면 곱해지므로 두 페이드가 서로를 덮어쓰지 않는다.)
+        float rootAlpha = t < BLACKOUT_START
+            ? 1f
+            : 1f - Mathf.Clamp01((float)((t - BLACKOUT_START) / (DISAPPEAR_AT - BLACKOUT_START)));
+        if (!Mathf.Approximately(_canvasGroup.alpha, rootAlpha))
+            _canvasGroup.alpha = rootAlpha;
 
         // Colorful로 넘어가면 하늘·건물만 서서히 사라진다. 바닥·자동차는 그룹 밖이라 그대로 남고,
         // 그 사이 아래 디스코 셀 레이어가 드러난다. 페이드 도중에도 건물은 계속 흘러야 자연스럽다.

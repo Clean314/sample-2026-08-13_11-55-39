@@ -145,7 +145,10 @@ public class InGameUI : MonoBehaviour
     // ── 2차 터널 (곡 마지막) ─────────────────────────────────────────
     // 244.5초에 화면이 검게 덮이고(1차 터널 진입과 같은 blackout 램프), 검정이 걷히면서
     // 터널이 드러난다. 1차보다 링이 빠르게 밀려오고 회전도 빠르다.
-    const double BLACK2_START     = 243;                            
+    // 검정 램프는 배경(_bgImage, sibling 0)과 디스코 셀만 어둡게 한다. 그 위에 깔린 드라이빙 배경의
+    // 바닥·자동차는 DrivingBackground가 같은 구간에 자기 CanvasGroup을 내려 함께 사라진다.
+    // 두 램프가 어긋나면 차만 남거나 먼저 사라지므로 시각을 그쪽 상수에서 한 번만 정한다.
+    const double BLACK2_START     = DrivingBackground.BLACKOUT_START; // ── 조정은 DrivingBackground에서 ──
     const double BLACK2_FULL      = DrivingBackground.DISAPPEAR_AT;   // 완전 검정 (드라이빙 배경 정리)
     const double TUNNEL2_START    = 246;                            // 검정이 걷히며 터널 페이드인
     const double TUNNEL2_FADE_SEC = 0.7;
