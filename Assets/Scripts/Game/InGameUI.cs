@@ -193,17 +193,28 @@ public class InGameUI : MonoBehaviour
     const float  TUNNEL_RAINBOW_SPEED = 0.80f;   // ── 조정 손잡이: 초당 색상환 회전수(변색 속도) ──
 
     // ── 터널 빗방울 (곡 마지막) ──────────────────────────────────────
-    // 4분 52.6초부터 곡 끝까지, 터널 안을 알록달록한 작은 점이 스쳐 지나간다.
+    // 4분 52.6초부터 곡 끝까지, 알록달록한 작은 점이 화면 전체를 가로질러 스쳐 지나간다.
     // 링과 같은 원근식(FOCAL/z)과 같은 곡률(TunnelOffset)을 써서 같은 공간에 있는 것처럼 보인다 —
     // 점이 링을 따라 같이 휘고, 깊이에 따라 크기·속도가 갈려 거리감이 생긴다.
+    //
+    // 뿌리는 자리의 기준은 "터널 벽 안쪽"이 아니라 "화면"이다. 월드 반지름을 고정해 두면
+    // 화면 반지름이 그 값 × FOCAL/z라 깊은 점일수록 소실점에 뭉쳐, 결국 터널 한가운데에만 점이 보인다.
+    // 그래서 화면 위의 한 점을 먼저 고르고 그 깊이의 배율로 나눠 월드 오프셋을 역산한다(SpawnRainDot).
+    // 어느 깊이에 있든 화면 어디에나 놓일 수 있고, 다가올수록 바깥으로 흘러 나간다.
     const double RAIN_START      = 292.6;   // ── 조정 손잡이: 시작 시각(4분 52.6초) ──
-    const int    RAIN_COUNT      = 90;      // ── 조정 손잡이: 점 개수 ──
+    const int    RAIN_COUNT      = 180;     // ── 조정 손잡이: 점 개수(화면 전체를 덮으므로 넉넉히) ──
     const float  RAIN_SPEED_MUL  = 1.7f;    // ── 조정 손잡이: 링 대비 다가오는 속도 ──
-    const float  RAIN_WORLD_SIZE = 0.010f;  // 점의 월드 지름 → 화면 크기 = 이 값 × FOCAL / z
-    const float  RAIN_MIN_PX     = 2f;      // 멀리서 1px 밑으로 내려가면 깜빡이므로 하한
+    const float  RAIN_WORLD_SIZE = 0.022f;  // 점의 월드 지름 → 화면 크기 = 이 값 × FOCAL / z
+    const float  RAIN_MIN_PX     = 3f;      // 멀리서 1px 밑으로 내려가면 깜빡이므로 하한
     const float  RAIN_FALL       = 0.06f;   // ── 조정 손잡이: 월드 낙하 속도(단위/초) ──
     const float  RAIN_SWAY       = 0.012f;  // ── 조정 손잡이: 좌우로 흩날리는 폭(월드) ──
     const float  RAIN_FADE_Z     = 1.6f;    // 이 깊이부터 카메라를 스치며 옅어진다
+    const float  RAIN_SPREAD     = 1.05f;   // ── 조정 손잡이: 화면 반쪽 대비 뿌리는 범위 ──
+                                            //    1보다 크면 가장자리 바깥에서도 점이 흘러 들어온다
+    const float  RAIN_CULL_MARGIN = 60f;    // 이만큼 화면 밖으로 밀려나면 곧바로 재활용(px)
+    const float  RAIN_SPAWN_Z_MIN = 3.5f;   // 옆으로 빠진 점이 다시 태어나는 가장 가까운 깊이.
+                                            //    너무 가까우면 큰 점이 눈앞에서 툭 나타난다
+    const float  RAIN_SPAWN_FADE  = 0.35f;  // 태어난 자리에서 튀어 보이지 않게 하는 페이드인(초)
 
     // ── 곡 마무리와 루프 이음 ────────────────────────────────────────
     // 곡이 끝나면 BGM은 loop=true로 0초로 되감긴다(BGMManager). 그냥 두면 알록달록한 터널이
@@ -222,6 +233,7 @@ public class InGameUI : MonoBehaviour
     float[]         _rainX, _rainY;   // 터널 축 기준 월드 오프셋 (벽 = 반지름 0.5)
     float[]         _rainHue;         // 점마다 다른 색상환 위치
     float[]         _rainPhase;       // 흩날림 위상
+    float[]         _rainAge;         // 태어난 뒤 흐른 시간(초). 페이드인에만 쓴다
     Sprite          _rainDotSprite;
 
     RectTransform[] _ringRts;
@@ -1355,6 +1367,7 @@ public class InGameUI : MonoBehaviour
         _rainY     = new float[RAIN_COUNT];
         _rainHue   = new float[RAIN_COUNT];
         _rainPhase = new float[RAIN_COUNT];
+        _rainAge   = new float[RAIN_COUNT];
 
         var go = new GameObject("TunnelRainLayer");
         go.transform.SetParent(parent.transform, false);
@@ -1381,27 +1394,48 @@ public class InGameUI : MonoBehaviour
 
             // z를 깊이 방향으로 고르게 흩어 둔다. 전부 zFar에서 시작하면 켜지는 순간
             // 한 겹이 통째로 몰려와 "벽이 다가오는" 것처럼 보인다.
-            SpawnRainDot(i, Mathf.Lerp(TUNNEL_Z_NEAR, TUNNEL_Z_FAR, (i + 0.5f) / RAIN_COUNT));
+            SpawnRainDot(i, Mathf.Lerp(RAIN_SPAWN_Z_MIN, TUNNEL_Z_FAR, (i + 0.5f) / RAIN_COUNT));
         }
     }
 
-    // 점 하나를 깊이 z의 단면 어딘가에 새로 놓는다.
+    // 점 하나를 깊이 z에 새로 놓는다. 자리는 화면 위에서 고르고, 그 깊이의 배율로 나눠
+    // 월드 오프셋으로 되돌린다 — 그래야 깊은 점도 소실점에 뭉치지 않고 화면 전체에 깔린다.
     void SpawnRainDot(int i, float z)
     {
-        // 터널 벽(반지름 0.5) 안쪽에 뿌리되 반지름에 sqrt를 씌운다.
-        // 안 씌우면 넓이가 아니라 반지름 기준으로 균등해져 정중앙만 빽빽해진다.
-        float ang = Random.Range(0f, Mathf.PI * 2f);
-        float rad = Mathf.Sqrt(Random.value) * 0.46f;
-        _rainX[i]     = Mathf.Cos(ang) * rad;
-        _rainY[i]     = Mathf.Sin(ang) * rad;
+        Vector2 half  = RainScreenHalf();
+        Vector2 scr   = new Vector2(Random.Range(-half.x, half.x), Random.Range(-half.y, half.y));
+        Vector2 world = (scr - TunnelOffset(z)) * (z / TUNNEL_FOCAL);
+
+        _rainX[i]     = world.x;
+        _rainY[i]     = world.y;
         _rainZ[i]     = z;
         _rainHue[i]   = Random.value;
         _rainPhase[i] = Random.Range(0f, Mathf.PI * 2f);
+        _rainAge[i]   = 0f;
     }
 
-    // 터널 링과 같은 원근·곡률을 쓴다. 다른 건 점이 축에서 떨어진 만큼 옆으로 밀린다는 것뿐:
+    // 점을 뿌릴 범위(화면 반쪽 × RAIN_SPREAD, 캔버스 단위).
+    // 캔버스 rect는 첫 레이아웃 전에는 0이라 그때만 기준 해상도로 대신한다.
+    Vector2 RainScreenHalf()
+    {
+        Vector2 size = _canvasRt != null ? _canvasRt.rect.size : Vector2.zero;
+        if (size.x < 1f || size.y < 1f) size = new Vector2(1080f, 1920f);
+        return size * (0.5f * RAIN_SPREAD);
+    }
+
+    // 점 i가 지금 화면에서 있어야 할 자리:
     //     화면 = TunnelOffset(z) + 월드오프셋 × (FOCAL / z)
     // 링이 지름 1의 원이라 sizeDelta가 FOCAL/z인 것과 같은 식이다.
+    Vector2 RainScreenPos(int i, float now)
+    {
+        float z     = _rainZ[i];
+        float scale = TUNNEL_FOCAL / z;
+        float sway  = Mathf.Sin(now * 1.7f + _rainPhase[i]) * RAIN_SWAY;
+        return TunnelOffset(z) + new Vector2((_rainX[i] + sway) * scale, _rainY[i] * scale);
+    }
+
+    // 터널 링과 같은 원근·곡률을 쓴다(RainScreenPos). 다른 건 점이 축에서 떨어진 만큼 옆으로
+    // 밀린다는 것과, 화면 밖으로 밀려난 점은 기다리지 않고 곧바로 되살린다는 것뿐이다.
     void UpdateTunnelRain(float now, double playbackSec, float intensity)
     {
         if (_rainLayerRt == null) return;
@@ -1410,29 +1444,42 @@ public class InGameUI : MonoBehaviour
         if (_rainLayerRt.gameObject.activeSelf != on) _rainLayerRt.gameObject.SetActive(on);
         if (!on) return;
 
-        float dz = TUNNEL_SPEED * TUNNEL2_SPEED_MUL * RAIN_SPEED_MUL * Time.deltaTime;
+        float   dt   = Time.deltaTime;
+        float   dz   = TUNNEL_SPEED * TUNNEL2_SPEED_MUL * RAIN_SPEED_MUL * dt;
+        Vector2 cull = RainScreenHalf() + new Vector2(RAIN_CULL_MARGIN, RAIN_CULL_MARGIN);
 
         for (int i = 0; i < RAIN_COUNT; i++)
         {
-            _rainZ[i] -= dz;
-            _rainY[i] -= RAIN_FALL * Time.deltaTime;   // 비처럼 아래로 흘러내린다
+            _rainZ[i]   -= dz;
+            _rainY[i]   -= RAIN_FALL * dt;   // 비처럼 아래로 흘러내린다
+            _rainAge[i] += dt;
             if (_rainZ[i] <= TUNNEL_Z_NEAR) SpawnRainDot(i, TUNNEL_Z_FAR);
+
+            Vector2 pos = RainScreenPos(i, now);
+
+            // 다가올수록 화면 반지름이 1/z로 커져 점이 가장자리 밖으로 빠져나간다.
+            // 카메라에 닿을 때까지 기다리면 점 태반이 화면 밖에서 수명을 보내 화면이 휑해지므로,
+            // 밖으로 나간 즉시 임의의 깊이로 되살려 화면 안 밀도를 유지한다.
+            // 되살아나는 깊이는 sqrt로 먼 쪽에 몰아준다 — 가까운 깊이는 점이 커서 눈에 띄게 튄다.
+            if (Mathf.Abs(pos.x) > cull.x || Mathf.Abs(pos.y) > cull.y)
+            {
+                SpawnRainDot(i, Mathf.Lerp(RAIN_SPAWN_Z_MIN, TUNNEL_Z_FAR, Mathf.Sqrt(Random.value)));
+                pos = RainScreenPos(i, now);
+            }
 
             float z     = _rainZ[i];
             float scale = TUNNEL_FOCAL / z;
-            float sway  = Mathf.Sin(now * 1.7f + _rainPhase[i]) * RAIN_SWAY;
 
-            _rainRts[i].anchoredPosition =
-                TunnelOffset(z) + new Vector2((_rainX[i] + sway) * scale, _rainY[i] * scale);
+            _rainRts[i].anchoredPosition = pos;
 
             float px = Mathf.Max(RAIN_MIN_PX, RAIN_WORLD_SIZE * scale);
             _rainRts[i].sizeDelta = new Vector2(px, px);
 
-            // 멀리서 들어올 때 페이드인, 카메라를 스칠 때 페이드아웃.
-            // 스치는 쪽을 안 지우면 화면을 덮는 큰 원반이 되어 눈에 거슬린다.
-            float fadeIn  = Mathf.InverseLerp(TUNNEL_Z_FAR, TUNNEL_Z_FAR - 2f, z);
+            // 태어난 자리가 깊이별로 제각각이라 페이드인은 깊이가 아니라 나이로 건다.
+            // 카메라를 스칠 때는 페이드아웃 — 안 지우면 화면을 덮는 큰 원반이 되어 눈에 거슬린다.
+            float fadeIn  = Mathf.Clamp01(_rainAge[i] / RAIN_SPAWN_FADE);
             float fadeOut = Mathf.InverseLerp(TUNNEL_Z_NEAR, RAIN_FADE_Z, z);
-            float a       = Mathf.Clamp01(fadeIn) * Mathf.Clamp01(fadeOut) * intensity;
+            float a       = fadeIn * Mathf.Clamp01(fadeOut) * intensity;
 
             // 점마다 색상환 위치가 달라 알록달록하고, 시간 항이 더해져 천천히 변색된다.
             var c = Color.HSVToRGB(Mathf.Repeat(_rainHue[i] + now * 0.12f, 1f), 0.75f, 1f);
@@ -3056,6 +3103,7 @@ public class InGameUI : MonoBehaviour
             //   F9  도시 등장(화이트아웃 직전)
             //   F10 자동차(드라이빙) 등장 구간 몇 초 전 — 도시→드라이빙 크로스페이드를 처음부터 볼 수 있게
             //   F11 2차 터널 진입 몇 초 전 — 검정 페이드인부터 볼 수 있게
+            //   F12 빗방울 파티클 시작 몇 초 전 — 알록달록 터널 + 파티클을 바로 볼 수 있게
             var kb = UnityEngine.InputSystem.Keyboard.current;
             if (kb != null && kb.f9Key.wasPressedThisFrame)
                 BGMManager.Instance?.Seek(CityLightBackground.APPEAR_START - 2.0);
@@ -3065,6 +3113,8 @@ public class InGameUI : MonoBehaviour
                 BGMManager.Instance?.Seek(DrivingBackground.APPEAR_START - 4.0);
             if (kb != null && kb.f11Key.wasPressedThisFrame)
                 BGMManager.Instance?.Seek(BLACK2_START - 4.0);
+            if (kb != null && kb.f12Key.wasPressedThisFrame)
+                BGMManager.Instance?.Seek(RAIN_START - 3.0);
 #endif
         }
     }
