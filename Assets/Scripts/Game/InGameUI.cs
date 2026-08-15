@@ -327,10 +327,10 @@ public class InGameUI : MonoBehaviour
             _specialBlockSprite   = LoadSpriteFromPath("Sprites/Puzzles/special_block");
         }
 
-        // 디스코 모드: 무지개 블럭은 전용 PNG가 없어 코드로 그린다
+        // 디스코 모드
         if (ModeSession.SelectedMode == 3)
         {
-            _rainbowBlockSprite = MakeRainbowSprite(110, 30);
+            _rainbowBlockSprite = LoadSpriteFromPath("Sprites/Puzzles/rainbow_disco");
 
             // 충격파 링. 터널용 _ringSprite(두께 6%)를 키워 쓰면 테두리가 같이 두꺼워져
             // 굵은 훌라후프처럼 보이므로, 큰 원본에 얇은 선으로 따로 굽는다.
@@ -340,40 +340,6 @@ public class InGameUI : MonoBehaviour
             // 폭발 조각: 모서리만 살짝 둥근 작은 사각형(색종이 조각)
             _burstChipSprite = MakeRoundedSprite(32, 32, 6);
         }
-    }
-
-    // ── 무지개 블럭 스프라이트: 둥근 사각 + 대각선 색상환 스윕 ──
-    Sprite MakeRainbowSprite(int size, int radius)
-    {
-        var tex = new Texture2D(size, size, TextureFormat.ARGB32, false);
-        tex.filterMode = FilterMode.Bilinear;
-        var px   = new Color32[size * size];
-        float half = (size - 1) * 0.5f;
-
-        for (int y = 0; y < size; y++)
-            for (int x = 0; x < size; x++)
-            {
-                if (!InRoundedRect(x, y, size, size, radius))
-                {
-                    px[y * size + x] = new Color32(0, 0, 0, 0);
-                    continue;
-                }
-
-                // 대각선을 따라 색상환을 한 바퀴 (좌하단 빨강 → 우상단 다시 빨강)
-                float hue = (x + y) / (float)(2 * size);
-                var   c   = Color.HSVToRGB(hue, 0.80f, 1f);
-
-                // 가장자리만 살짝 어둡게 해서 셀 경계가 읽히도록
-                float edge  = Mathf.Clamp01(1f - Mathf.Max(Mathf.Abs(x - half), Mathf.Abs(y - half)) / half);
-                float shade = Mathf.Lerp(0.70f, 1f, Mathf.Clamp01(edge * 4f));
-
-                px[y * size + x] = new Color32(
-                    (byte)(c.r * 255f * shade), (byte)(c.g * 255f * shade), (byte)(c.b * 255f * shade), 255);
-            }
-
-        tex.SetPixels32(px);
-        tex.Apply();
-        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
     }
 
     Sprite LoadSpriteFromPath(string path)
@@ -2360,7 +2326,7 @@ public class InGameUI : MonoBehaviour
                     continue;
                 }
 
-                // 디스코 무지개 블럭: 코드로 그린 색상환 스프라이트 (크기 맥동은 UpdateRainbowBlocks가 담당)
+                // 디스코 무지개 블럭: rainbow_disco.png (크기 맥동·밝기는 UpdateRainbowBlocks가 담당)
                 if (v == GameManager.RAINBOW_BLOCK_VAL)
                 {
                     _cellImages[r, c].sprite = _spr110;
