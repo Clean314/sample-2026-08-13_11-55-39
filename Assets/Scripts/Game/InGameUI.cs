@@ -202,13 +202,25 @@ public class InGameUI : MonoBehaviour
     // 그래서 화면 위의 한 점을 먼저 고르고 그 깊이의 배율로 나눠 월드 오프셋을 역산한다(SpawnRainDot).
     // 어느 깊이에 있든 화면 어디에나 놓일 수 있고, 다가올수록 바깥으로 흘러 나간다.
     const double RAIN_START      = 292.6;   // ── 조정 손잡이: 시작 시각(4분 52.6초) ──
-    const int    RAIN_COUNT      = 180;     // ── 조정 손잡이: 점 개수(화면 전체를 덮으므로 넉넉히) ──
+    //
+    // 눈에 띄는 정도는 개수보다 크기·대비·길이가 좌우한다. 배경인 터널이 이미 알록달록한
+    // 원색(S 0.85, V 1)이라, 같은 채도의 작은 점은 아무리 많이 뿌려도 배경에 섞여 묻힌다.
+    // 그래서 세 가지를 같이 쓴다: 점을 키우고, 테두리를 검게 둘러 배경과 끊고(MakeDotSprite),
+    // 바깥으로 밀려나는 속도만큼 늘여 속도선으로 만든다.
+    const int    RAIN_COUNT      = 240;     // ── 조정 손잡이: 점 개수(화면 전체를 덮으므로 넉넉히) ──
     const float  RAIN_SPEED_MUL  = 1.7f;    // ── 조정 손잡이: 링 대비 다가오는 속도 ──
-    const float  RAIN_WORLD_SIZE = 0.022f;  // 점의 월드 지름 → 화면 크기 = 이 값 × FOCAL / z
-    const float  RAIN_MIN_PX     = 3f;      // 멀리서 1px 밑으로 내려가면 깜빡이므로 하한
+    const float  RAIN_WORLD_SIZE = 0.045f;  // ── 조정 손잡이: 점의 월드 지름 ──
+                                            //    화면 크기 = 이 값 × FOCAL / z
+    const float  RAIN_MIN_PX     = 4f;      // 멀리서 1px 밑으로 내려가면 깜빡이므로 하한
     const float  RAIN_FALL       = 0.06f;   // ── 조정 손잡이: 월드 낙하 속도(단위/초) ──
     const float  RAIN_SWAY       = 0.012f;  // ── 조정 손잡이: 좌우로 흩날리는 폭(월드) ──
-    const float  RAIN_FADE_Z     = 1.6f;    // 이 깊이부터 카메라를 스치며 옅어진다
+    const float  RAIN_FADE_Z     = 1.15f;   // 이 깊이부터 카메라를 스치며 옅어진다.
+                                            //    낮출수록 가장 크게 보이는 구간까지 살아 있다
+    const float  RAIN_SAT        = 0.55f;   // ── 조정 손잡이: 점 채도 ──
+                                            //    배경(0.85)보다 흐려야 원색 터널 위에서 떠 보인다
+    const float  RAIN_RIM        = 0.26f;   // ── 조정 손잡이: 검은 테두리 두께(반지름 비율) ──
+    const float  RAIN_STREAK     = 3.5f;    // ── 조정 손잡이: 속도선 길이 배수(0이면 동그란 점) ──
+    const float  RAIN_STREAK_MAX = 260f;    // 속도선 길이 상한(px)
     const float  RAIN_SPREAD     = 1.05f;   // ── 조정 손잡이: 화면 반쪽 대비 뿌리는 범위 ──
                                             //    1보다 크면 가장자리 바깥에서도 점이 흘러 들어온다
     const float  RAIN_CULL_MARGIN = 60f;    // 이만큼 화면 밖으로 밀려나면 곧바로 재활용(px)
@@ -1358,7 +1370,7 @@ public class InGameUI : MonoBehaviour
 
     void BuildRainLayer(GameObject parent)
     {
-        _rainDotSprite = MakeDotSprite(32);
+        _rainDotSprite = MakeDotSprite(48, RAIN_RIM);
 
         _rainRts   = new RectTransform[RAIN_COUNT];
         _rainImgs  = new Image[RAIN_COUNT];
@@ -1426,12 +1438,14 @@ public class InGameUI : MonoBehaviour
     // 점 i가 지금 화면에서 있어야 할 자리:
     //     화면 = TunnelOffset(z) + 월드오프셋 × (FOCAL / z)
     // 링이 지름 1의 원이라 sizeDelta가 FOCAL/z인 것과 같은 식이다.
-    Vector2 RainScreenPos(int i, float now)
+    // axis는 그 깊이에서 터널 축이 지나는 자리 — 점이 밀려나는 방향의 기준점이다.
+    Vector2 RainScreenPos(int i, float now, out Vector2 axis)
     {
         float z     = _rainZ[i];
         float scale = TUNNEL_FOCAL / z;
         float sway  = Mathf.Sin(now * 1.7f + _rainPhase[i]) * RAIN_SWAY;
-        return TunnelOffset(z) + new Vector2((_rainX[i] + sway) * scale, _rainY[i] * scale);
+        axis = TunnelOffset(z);
+        return axis + new Vector2((_rainX[i] + sway) * scale, _rainY[i] * scale);
     }
 
     // 터널 링과 같은 원근·곡률을 쓴다(RainScreenPos). 다른 건 점이 축에서 떨어진 만큼 옆으로
@@ -1444,9 +1458,13 @@ public class InGameUI : MonoBehaviour
         if (_rainLayerRt.gameObject.activeSelf != on) _rainLayerRt.gameObject.SetActive(on);
         if (!on) return;
 
-        float   dt   = Time.deltaTime;
-        float   dz   = TUNNEL_SPEED * TUNNEL2_SPEED_MUL * RAIN_SPEED_MUL * dt;
-        Vector2 cull = RainScreenHalf() + new Vector2(RAIN_CULL_MARGIN, RAIN_CULL_MARGIN);
+        float   dt    = Time.deltaTime;
+        float   zRate = TUNNEL_SPEED * TUNNEL2_SPEED_MUL * RAIN_SPEED_MUL;
+        float   dz    = zRate * dt;
+        // 속도선 길이는 프레임당 이동량이 아니라 60fps 한 프레임 기준으로 잰다.
+        // 프레임당 이동량을 쓰면 120Hz 기기에서 선이 절반으로 짧아져 기기마다 연출이 달라진다.
+        float   dzRef = zRate / 60f;
+        Vector2 cull  = RainScreenHalf() + new Vector2(RAIN_CULL_MARGIN, RAIN_CULL_MARGIN);
 
         for (int i = 0; i < RAIN_COUNT; i++)
         {
@@ -1455,7 +1473,7 @@ public class InGameUI : MonoBehaviour
             _rainAge[i] += dt;
             if (_rainZ[i] <= TUNNEL_Z_NEAR) SpawnRainDot(i, TUNNEL_Z_FAR);
 
-            Vector2 pos = RainScreenPos(i, now);
+            Vector2 pos = RainScreenPos(i, now, out Vector2 axis);
 
             // 다가올수록 화면 반지름이 1/z로 커져 점이 가장자리 밖으로 빠져나간다.
             // 카메라에 닿을 때까지 기다리면 점 태반이 화면 밖에서 수명을 보내 화면이 휑해지므로,
@@ -1464,7 +1482,7 @@ public class InGameUI : MonoBehaviour
             if (Mathf.Abs(pos.x) > cull.x || Mathf.Abs(pos.y) > cull.y)
             {
                 SpawnRainDot(i, Mathf.Lerp(RAIN_SPAWN_Z_MIN, TUNNEL_Z_FAR, Mathf.Sqrt(Random.value)));
-                pos = RainScreenPos(i, now);
+                pos = RainScreenPos(i, now, out axis);
             }
 
             float z     = _rainZ[i];
@@ -1473,7 +1491,18 @@ public class InGameUI : MonoBehaviour
             _rainRts[i].anchoredPosition = pos;
 
             float px = Mathf.Max(RAIN_MIN_PX, RAIN_WORLD_SIZE * scale);
-            _rainRts[i].sizeDelta = new Vector2(px, px);
+
+            // 화면 반지름 R = 월드거리 × FOCAL/z라, 한 프레임에 바깥으로 밀리는 양은 R·Δz/z다.
+            // 그만큼 진행 방향으로 늘여 놓으면 셔터가 열려 있는 동안 지나간 자국처럼 보인다 —
+            // 축 근처의 먼 점은 거의 동그랗고, 눈앞을 스치는 점일수록 길게 그어진다.
+            Vector2 radial = pos - axis;
+            float   r      = radial.magnitude;
+            float   len    = px + Mathf.Min(RAIN_STREAK_MAX, r * (dzRef / z) * RAIN_STREAK);
+
+            _rainRts[i].sizeDelta     = new Vector2(len, px);
+            _rainRts[i].localRotation = r > 0.01f
+                ? Quaternion.Euler(0f, 0f, Mathf.Atan2(radial.y, radial.x) * Mathf.Rad2Deg)
+                : Quaternion.identity;
 
             // 태어난 자리가 깊이별로 제각각이라 페이드인은 깊이가 아니라 나이로 건다.
             // 카메라를 스칠 때는 페이드아웃 — 안 지우면 화면을 덮는 큰 원반이 되어 눈에 거슬린다.
@@ -1482,27 +1511,38 @@ public class InGameUI : MonoBehaviour
             float a       = fadeIn * Mathf.Clamp01(fadeOut) * intensity;
 
             // 점마다 색상환 위치가 달라 알록달록하고, 시간 항이 더해져 천천히 변색된다.
-            var c = Color.HSVToRGB(Mathf.Repeat(_rainHue[i] + now * 0.12f, 1f), 0.75f, 1f);
+            var c = Color.HSVToRGB(Mathf.Repeat(_rainHue[i] + now * 0.12f, 1f), RAIN_SAT, 1f);
             _rainImgs[i].color = new Color(c.r, c.g, c.b, a);
         }
     }
 
     // 가장자리를 알파로 깎은 원. MakeRoundedSprite는 경계가 딱 떨어져서
     // 몇 px짜리로 줄이면 각져 보이므로 파티클용은 따로 굽는다.
-    Sprite MakeDotSprite(int size)
+    //
+    // rim > 0이면 바깥 rim 비율만큼을 검게 굽는다. Image의 색은 스프라이트에 곱해지므로
+    // 검은 픽셀은 무슨 색을 칠해도 검게 남고(0 × c = 0), 흰 속만 그 색으로 물든다.
+    // 덕분에 알록달록한 터널 위에서도 점의 윤곽이 배경과 끊겨 또렷하게 보인다.
+    Sprite MakeDotSprite(int size, float rim = 0f)
     {
         var tex = new Texture2D(size, size, TextureFormat.ARGB32, false);
         tex.filterMode = FilterMode.Bilinear;
-        var   px  = new Color32[size * size];
-        float ctr = (size - 1) * 0.5f;
-        float rad = size * 0.5f;
+        var   px    = new Color32[size * size];
+        float ctr   = (size - 1) * 0.5f;
+        float rad   = size * 0.5f;
+        float inner = rad * (1f - rim);
 
         for (int y = 0; y < size; y++)
             for (int x = 0; x < size; x++)
             {
                 float dx = x - ctr, dy = y - ctr;
-                float a  = Mathf.Clamp01((rad - Mathf.Sqrt(dx * dx + dy * dy)) / 1.5f);
-                px[y * size + x] = new Color32(255, 255, 255, (byte)(a * 255f));
+                float d  = Mathf.Sqrt(dx * dx + dy * dy);
+                float a  = Mathf.Clamp01((rad - d) / 1.5f);
+                // 속(흰색) → 테두리(검정) 전환도 1.5px에 걸쳐 부드럽게. 점이 몇 px로 줄면
+                // 테두리가 1px 밑으로 내려가는데, 딱 자르면 그 크기에서 지저분하게 튄다.
+                byte v = rim > 0f
+                    ? (byte)(Mathf.Clamp01((inner - d) / 1.5f) * 255f)
+                    : (byte)255;
+                px[y * size + x] = new Color32(v, v, v, (byte)(a * 255f));
             }
 
         tex.SetPixels32(px);
