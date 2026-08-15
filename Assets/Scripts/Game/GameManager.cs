@@ -17,7 +17,7 @@ public class GameManager : MonoBehaviour
 
     // 디스코 모드: 이 줄 수만큼 클리어될 때마다 무지개 블럭이 하나 생긴다.
     // (UI의 하트 게이지 개수도 이 값을 따라간다)
-    public const int DISCO_LINES_PER_RAINBOW = 3;
+    public const int DISCO_LINES_PER_RAINBOW = 4;
 
     public int[,] Board { get; private set; }   // 0=빈칸, 1~6=색상 인덱스+1, 7=스페셜 블럭, 8=무지개 블럭
     public int Score     { get; private set; }
