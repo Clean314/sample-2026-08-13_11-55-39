@@ -24,6 +24,10 @@ public class InGameUI : MonoBehaviour
     Image[]     _gaugeCircles     = new Image[2];     // 스페셜 블럭 게이지 표시 (토글 모드)
     RectTransform _gridRt;
 
+    // 무지개 블럭 발동으로 들어온 클리어인지. ActivateRainbowBlock이 OnStateChanged를 동기로
+    // 부르며 일반 줄 클리어 연출을 그대로 태우기 때문에, 그쪽만 골라내려면 표시가 필요하다.
+    bool _rainbowActivating;
+
     GameObject[]  _pieceSlots          = new GameObject[3];
     GameObject[]  _previewContainers   = new GameObject[3]; // 슬롯별 조각 컨테이너 참조
     float[]       _previewCellSizes    = new float[3];      // 슬롯별 셀 크기(cs)
@@ -45,6 +49,7 @@ public class InGameUI : MonoBehaviour
     AudioClip   _sfxSelect;   // 선택: 조각을 집었을 때
     AudioClip   _sfxDecide;   // 결정: 조각을 그리드에 놓았을 때
     AudioClip   _sfxToggle;   // 토글 모드: 화이트↔블랙 전환 효과음
+    AudioClip   _sfxRainbow;  // 디스코 모드: 무지개 블럭을 탭해 발동시킬 때
 
     // ── 공통 스프라이트 캐시 ────────────────────────────────────
     Sprite _spr110;   // 110×110 r=30  (그리드 셀용)
@@ -241,6 +246,8 @@ public class InGameUI : MonoBehaviour
 
         if (ModeSession.SelectedMode == 2)
             _sfxToggle = Resources.Load<AudioClip>("Audio/SFX/toggle_switch");
+        else if (ModeSession.SelectedMode == 3)
+            _sfxRainbow = Resources.Load<AudioClip>("Audio/SFX/disco_special");
 
         // 스프라이트 미리 생성
         LoadColorSprites();
@@ -1588,7 +1595,17 @@ public class InGameUI : MonoBehaviour
         Vector2 gridOff = _gridRt != null ? _gridRt.anchoredPosition : Vector2.zero;
         Vector2 origin  = gridOff + new Vector2(-420f + col * 120f, 420f - row * 120f);
 
-        if (!_gm.ActivateRainbowBlock(row, col)) yield break;
+        // 이 호출 안에서 OnStateChanged → PlayClearEffect → FlashAndFade까지 동기로 돌아간다.
+        // 그 사이에만 표시를 세워 두면 클리어음을 골라내 건너뛸 수 있다.
+        _rainbowActivating = true;
+        bool activated     = _gm.ActivateRainbowBlock(row, col);
+        _rainbowActivating = false;
+        if (!activated) yield break;
+
+        // 클리어음은 위 호출 안에서 _rainbowActivating 표시를 보고 건너뛴다(FlashAndFade).
+        // 그래서 여기서 우는 발동음 하나만 들린다.
+        if (_audioSource != null && _sfxRainbow != null)
+            _audioSource.PlayOneShot(_sfxRainbow);
 
         var fxRoot = new GameObject("RainbowBurstFX");
         fxRoot.transform.SetParent(_canvas.transform, false);
@@ -1962,7 +1979,9 @@ public class InGameUI : MonoBehaviour
     // 페이드아웃
     IEnumerator FlashAndFade(System.Collections.Generic.HashSet<(int r, int c)> cells)
     {
-        if (_audioSource != null && _audioSource.clip != null)
+        // 무지개 블럭 발동으로 들어온 클리어는 발동음(disco_special) 하나만 울린다.
+        // 클리어음까지 겹치면 두 소리가 뭉개진다. (PlayRainbowBurst가 표시를 세워 준다)
+        if (_audioSource != null && _audioSource.clip != null && !_rainbowActivating)
             _audioSource.Play();
 
         float elapsed = 0f, duration = 0.3f;

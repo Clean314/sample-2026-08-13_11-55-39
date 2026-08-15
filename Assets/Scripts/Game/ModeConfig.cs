@@ -39,7 +39,7 @@ public static class ModeConfig
                      } },  // 2: 토글
         new Config { bgmClip = "Audio/BGM/disco", puzzleSprite = null,
                      colorSpriteNames = new string[]{ "skyblue_disco", "green_disco", "yellow_disco", "orange_disco", "pink_disco", "white_disco" },
-                     sfxSelect = "Audio/SFX/disco_선택", sfxDecide = "Audio/SFX/disco_결정", sfxClear = "Audio/SFX/normal", excludedShapes = null },  // 3: 디스코
+                     sfxSelect = "Audio/SFX/disco_선택", sfxDecide = "Audio/SFX/disco_결정", sfxClear = "Audio/SFX/disco", excludedShapes = null },  // 3: 디스코
     };
 
     public static Config Current => Modes[ModeSession.SelectedMode];
