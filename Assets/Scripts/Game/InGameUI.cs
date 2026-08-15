@@ -23,6 +23,31 @@ public class InGameUI : MonoBehaviour
     Image[,]    _blockOverlays    = new Image[8, 8];  // 블록 스프라이트 레이어 (비활성 반투명 처리용)
     Image[]     _gaugeCircles     = new Image[2];     // 스페셜 블럭 게이지 표시 (토글 모드)
     RectTransform _gridRt;
+    RectTransform _trayRt;
+    RectTransform _heartRootRt;
+
+    // 무지개 블럭 발동 화면 흔들림 (디스코 모드 전용). 대상 선정은 CollectShakeTargets 참고.
+    RectTransform[] _shakeTargets;
+    Vector2[]       _shakeHome;
+    Coroutine       _shakeCo;
+    const float SHAKE_SEC  = 0.22f;   // ── 조정 손잡이: 흔들림 길이(초) ──
+    const float SHAKE_AMP  = 14f;     // ── 조정 손잡이: 시작 진폭(px, 1080 기준 해상도) ──
+    const float SHAKE_FREQ = 34f;     // ── 조정 손잡이: 진동 각속도(클수록 잘게 떨린다) ──
+
+    // 일반 줄 클리어 음표 파티클 (디스코 모드 전용). PlayClearNotes 참고.
+    // SCDream4/8에는 ♫(U+266B)가 빠져 있어 ♪(U+266A)와 ♬(U+266C)만 쓴다(cmap 확인).
+    // 없는 글자를 넣으면 에디터에서는 OS 폰트로 대체돼 멀쩡히 보이다가 모바일 빌드에서 빈칸이 된다.
+    static readonly string[] NOTE_GLYPHS = { "♪", "♬" };
+    // NOTE_PER_LINE이 8이면 줄을 8등분해 칸마다 정확히 하나씩 뜬다(구간 폭 = 1칸).
+    // 여기서 더 늘리면 같은 칸에 두 개가 겹쳐 올라간다.
+    const int   NOTE_PER_LINE = 8;      // ── 조정 손잡이: 클리어된 줄 하나당 음표 개수 ──
+    const float NOTE_SEC      = 0.4f;   // ── 조정 손잡이: 음표 하나가 떠 있는 시간(초) ──
+    const float NOTE_SIZE     = 40;     // ── 조정 손잡이: 글자 크기(px) ──
+    // 상승 거리는 시간과 같이 봐야 한다. 0.4초 / 85px ≈ 212 px/s.
+    const float NOTE_RISE     = 85f;    // ── 조정 손잡이: 총 상승 거리(px) ──
+    const float NOTE_ALPHA    = 0.65f;  // ── 조정 손잡이: 가장 진할 때의 불투명도 ──
+    const float NOTE_HOLD     = 0.62f;  // ── 조정 손잡이: 이 비율까지 NOTE_ALPHA 유지, 이후 급히 사라짐 ──
+    const float NOTE_STAGGER  = 0.07f;  // ── 조정 손잡이: 음표마다 어긋나는 시작 시각(초) ──
 
     // 무지개 블럭 발동으로 들어온 클리어인지. ActivateRainbowBlock이 OnStateChanged를 동기로
     // 부르며 일반 줄 클리어 연출을 그대로 태우기 때문에, 그쪽만 골라내려면 표시가 필요하다.
@@ -279,6 +304,9 @@ public class InGameUI : MonoBehaviour
             BuildTunnelLayer();
             BuildWhiteFlashOverlay();
             _beatTracker = new GameObject("BeatTracker").AddComponent<BeatTracker>();
+
+            // 모든 레이아웃이 끝난 뒤에 제자리를 기록해야 한다
+            CollectShakeTargets();
         }
 
         RefreshUI();
@@ -481,6 +509,7 @@ public class InGameUI : MonoBehaviour
             // 점수 텍스트 하단(-315)과 디스코 그리드 백드롭 상단(-385) 사이 70px에 딱 맞춘다
             hRootRt.anchoredPosition = new Vector2(0, -313);
             hRootRt.sizeDelta        = new Vector2(n * 78, 70);
+            _heartRootRt             = hRootRt;
 
             _discoHearts = new Text[n];
             for (int i = 0; i < n; i++)
@@ -1478,6 +1507,7 @@ public class InGameUI : MonoBehaviour
         trayRt.pivot             = new Vector2(0.5f, 0f);
         trayRt.anchoredPosition  = new Vector2(0, 170);
         trayRt.sizeDelta         = new Vector2(1060, 360);
+        _trayRt                  = trayRt;
 
         for (int i = 0; i < 3; i++)
         {
@@ -1595,8 +1625,8 @@ public class InGameUI : MonoBehaviour
         Vector2 gridOff = _gridRt != null ? _gridRt.anchoredPosition : Vector2.zero;
         Vector2 origin  = gridOff + new Vector2(-420f + col * 120f, 420f - row * 120f);
 
-        // 이 호출 안에서 OnStateChanged → PlayClearEffect → FlashAndFade까지 동기로 돌아간다.
-        // 그 사이에만 표시를 세워 두면 클리어음을 골라내 건너뛸 수 있다.
+        // 이 호출 안에서 OnStateChanged → PlayClearEffect까지 동기로 돌아간다.
+        // 그 사이에만 표시를 세워 두면 음표 파티클이 자기 폭발과 겹치지 않는다.
         _rainbowActivating = true;
         bool activated     = _gm.ActivateRainbowBlock(row, col);
         _rainbowActivating = false;
@@ -1606,6 +1636,11 @@ public class InGameUI : MonoBehaviour
         // 그래서 여기서 우는 발동음 하나만 들린다.
         if (_audioSource != null && _sfxRainbow != null)
             _audioSource.PlayOneShot(_sfxRainbow);
+
+        // 화면 흔들림은 무지개 블럭 발동에만 붙인다. 일반 줄 클리어는 자주 일어나서
+        // 매번 흔들면 금방 피로해지고, 특수 블럭의 "한 방"이 특별해 보이지 않는다.
+        // (ActivateRainbowBlock이 이미 OnStateChanged를 거쳐 줄 클리어 연출을 띄운 뒤다)
+        StartBurstShake();
 
         var fxRoot = new GameObject("RainbowBurstFX");
         fxRoot.transform.SetParent(_canvas.transform, false);
@@ -1956,14 +1991,198 @@ public class InGameUI : MonoBehaviour
     }
 
     // 번쩍임(80ms) → 페이드아웃(300ms) → 그리드 갱신 → [아이스] 슬라이드 체인
+    // ── 디스코 모드: 무지개 블럭 발동 화면 흔들림 ──────────────────
+    // Overlay 캔버스의 RectTransform은 캔버스 시스템이 매 프레임 덮어쓰므로 루트를 통째로 흔들 수 없다.
+    // 대신 배경 위에 얹힌 "내용물"만 같은 오프셋으로 민다. 전체화면을 채우는 배경·터널·스팟 레이어는
+    // 일부러 제외했다 — 화면을 꽉 채우는 레이어를 흔들면 밀린 쪽 가장자리에 빈 띠가 드러난다.
+    void CollectShakeTargets()
+    {
+        var candidates = new RectTransform[]
+        {
+            _gridRt, _trayRt, _heartRootRt,
+            _scoreText     != null ? _scoreText.rectTransform     : null,
+            _highScoreText != null ? _highScoreText.rectTransform : null,
+        };
+
+        int n = 0;
+        for (int i = 0; i < candidates.Length; i++) if (candidates[i] != null) n++;
+
+        _shakeTargets = new RectTransform[n];
+        _shakeHome    = new Vector2[n];
+        int k = 0;
+        for (int i = 0; i < candidates.Length; i++)
+            if (candidates[i] != null)
+            {
+                _shakeTargets[k] = candidates[i];
+                // 제자리는 여기서 한 번만 기록한다. 이 다섯 개는 빌드 후 anchoredPosition이
+                // 바뀌지 않으므로, 흔들림이 겹쳐 들어와도 복귀 지점이 흔들린 좌표로 밀리지 않는다.
+                _shakeHome[k]    = candidates[i].anchoredPosition;
+                k++;
+            }
+    }
+
+    void StartBurstShake()
+    {
+        if (_shakeTargets == null || _shakeTargets.Length == 0) return;
+
+        // 무지개 블럭 두 개를 연달아 터뜨리면 이전 흔들림을 끊고 새로 시작한다.
+        // 코루틴을 하나 더 얹으면 둘이 같은 anchoredPosition을 매 프레임 서로 덮어써서
+        // 먼저 끝난 쪽이 제자리로 돌려놔도 남은 쪽이 다시 밀어버린다.
+        if (_shakeCo != null) StopCoroutine(_shakeCo);
+        _shakeCo = StartCoroutine(BurstShake());
+    }
+
+    IEnumerator BurstShake()
+    {
+        float elapsed = 0f;
+        while (elapsed < SHAKE_SEC)
+        {
+            elapsed += Time.deltaTime;
+
+            // 진폭은 제곱으로 잦아들어 초반만 세게 치고 금방 가라앉는다.
+            float decay = 1f - Mathf.Clamp01(elapsed / SHAKE_SEC);
+            float amp   = SHAKE_AMP * decay * decay;
+
+            // 매 프레임 난수로 방향을 뽑으면 지글거리기만 해서 "충격"으로 읽히지 않는다.
+            // 주기가 서로 안 맞는 사인 두 개를 쓰면 x/y가 같은 리듬을 반복하지 않아
+            // 짧은 시간에도 흔들림이 규칙적으로 보이지 않는다. 세로는 60%만 흔든다.
+            var off = new Vector2(
+                Mathf.Sin(elapsed * SHAKE_FREQ) * amp,
+                Mathf.Sin(elapsed * SHAKE_FREQ * 0.73f + 1.3f) * amp * 0.6f);
+
+            for (int i = 0; i < _shakeTargets.Length; i++)
+                if (_shakeTargets[i] != null)
+                    _shakeTargets[i].anchoredPosition = _shakeHome[i] + off;
+
+            yield return null;
+        }
+
+        for (int i = 0; i < _shakeTargets.Length; i++)
+            if (_shakeTargets[i] != null)
+                _shakeTargets[i].anchoredPosition = _shakeHome[i];
+
+        _shakeCo = null;
+    }
+
     IEnumerator PlayClearEffect()
     {
         var cells = CollectClearedCells(_gm.LastClearedRows, _gm.LastClearedCols);
+
+        // 디스코 일반 클리어에만 음표를 띄운다. 무지개 블럭 발동은 자체 파티클이 있어 제외.
+        // 음표는 블록이 사라진 뒤에도 한참 떠 있으므로 기다리지 않고 따로 돌린다.
+        if (ModeSession.SelectedMode == 3 && !_rainbowActivating)
+            StartCoroutine(PlayClearNotes());
+
         yield return StartCoroutine(FlashAndFade(cells));
         RefreshGrid();
 
         if (ModeSession.SelectedMode == 1)
             yield return StartCoroutine(IceSlideAndChain());
+    }
+
+    // ── 디스코 일반 클리어: 음표 파티클 ──────────────────────────────
+    // 클리어된 줄마다 음표가 느리게 떠오르다 끝에서 빠르게 사라진다.
+    //
+    // FX 루트는 무지개 폭발과 같은 이유로 캔버스 최상단 자식에 단다 — 그리드 아래에 두면
+    // 나중에 생성된 캔버스 자식(트레이·점수)에 가려지고, 음표는 그리드 위로 올라가므로 특히 겹친다.
+    // 좌표는 그리드 로컬 → 캔버스인데 둘 다 화면 중앙 앵커라 그리드 오프셋만 더하면 된다.
+    IEnumerator PlayClearNotes()
+    {
+        if (_canvas == null || _gm == null) yield break;
+
+        int lines = _gm.LastClearedRows.Count + _gm.LastClearedCols.Count;
+        if (lines == 0) yield break;
+
+        // 줄 목록은 다음 클리어에 덮어써지므로 위치를 지금 다 뽑아둔다.
+        Vector2 gridOff = _gridRt != null ? _gridRt.anchoredPosition : Vector2.zero;
+        int n = lines * NOTE_PER_LINE;
+        var origins = new Vector2[n];
+        int k = 0;
+
+        // 줄을 NOTE_PER_LINE 등분해 구간마다 하나씩 뽑는다. 그냥 무작위로 뽑으면
+        // 두 음표가 같은 칸에서 겹쳐 떠올라 한 개처럼 보이는 경우가 생긴다.
+        foreach (int r in _gm.LastClearedRows)
+            for (int i = 0; i < NOTE_PER_LINE; i++)
+            {
+                int c = Random.Range(i * GameManager.SIZE / NOTE_PER_LINE,
+                                     (i + 1) * GameManager.SIZE / NOTE_PER_LINE);
+                origins[k++] = gridOff + new Vector2(-420f + c * 120f, 420f - r * 120f);
+            }
+        foreach (int c in _gm.LastClearedCols)
+            for (int i = 0; i < NOTE_PER_LINE; i++)
+            {
+                int r = Random.Range(i * GameManager.SIZE / NOTE_PER_LINE,
+                                     (i + 1) * GameManager.SIZE / NOTE_PER_LINE);
+                origins[k++] = gridOff + new Vector2(-420f + c * 120f, 420f - r * 120f);
+            }
+
+        var root = new GameObject("ClearNoteFX");
+        root.transform.SetParent(_canvas.transform, false);
+        var rootRt       = root.AddComponent<RectTransform>();
+        rootRt.anchorMin = Vector2.zero;
+        rootRt.anchorMax = Vector2.one;
+        rootRt.offsetMin = rootRt.offsetMax = Vector2.zero;
+        root.transform.SetAsLastSibling();
+
+        var rts    = new RectTransform[n];
+        var txts   = new Text[n];
+        var delays = new float[n];
+
+        // 글자는 칸마다 따로 뽑지 않고 번갈아 넣는다. 독립으로 뽑으면 한 줄이 전부
+        // 같은 글자로 나오는 경우가 생겨 두 종류가 보이지 않는다.
+        // 시작 글자만 무작위로 굴려 매번 같은 배열(♪♬♪♬)로 고정되지도 않게 한다.
+        int glyphOffset = Random.Range(0, NOTE_GLYPHS.Length);
+
+        for (int i = 0; i < n; i++)
+        {
+            var go = new GameObject($"Note_{i}");
+            go.transform.SetParent(root.transform, false);
+
+            var t           = go.AddComponent<Text>();
+            t.font          = Font4();
+            t.fontSize      = (int)NOTE_SIZE;
+            t.alignment     = TextAnchor.MiddleCenter;
+            t.text          = NOTE_GLYPHS[(i + glyphOffset) % NOTE_GLYPHS.Length];
+            t.color         = Color.white;
+            t.raycastTarget = false;
+
+            var rt              = go.GetComponent<RectTransform>();
+            rt.anchorMin        = rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot            = new Vector2(0.5f, 0.5f);
+            rt.sizeDelta        = new Vector2(NOTE_SIZE * 2f, NOTE_SIZE * 2f);
+            rt.anchoredPosition = origins[i];
+
+            rts[i]    = rt;
+            txts[i]   = t;
+            delays[i] = Random.Range(0f, NOTE_STAGGER);   // 동시에 튀어나오지 않게 조금씩 어긋내기
+        }
+
+        float maxDelay = 0f;
+        for (int i = 0; i < n; i++) maxDelay = Mathf.Max(maxDelay, delays[i]);
+
+        float elapsed = 0f;
+        while (elapsed < maxDelay + NOTE_SEC)
+        {
+            elapsed += Time.deltaTime;
+            for (int i = 0; i < n; i++)
+            {
+                float t = Mathf.Clamp01((elapsed - delays[i]) / NOTE_SEC);
+
+                // 처음이 조금 빠르고 갈수록 느려진다 — 떠오르다 힘이 빠지는 느낌
+                float rise = (1f - (1f - t) * (1f - t)) * NOTE_RISE;
+                rts[i].anchoredPosition = origins[i] + new Vector2(0f, rise);
+
+                // 잠깐 나타났다가 NOTE_HOLD까지 떠 있고, 그 뒤 남은 구간에 급히 빠진다.
+                // 가장 진할 때도 NOTE_ALPHA라 배경이 비쳐 파티클처럼 가볍게 읽힌다.
+                float a = t < 0.12f ? t / 0.12f
+                        : t < NOTE_HOLD ? 1f
+                        : 1f - (t - NOTE_HOLD) / (1f - NOTE_HOLD);
+                txts[i].color = new Color(1f, 1f, 1f, Mathf.Clamp01(a) * NOTE_ALPHA);
+            }
+            yield return null;
+        }
+
+        Destroy(root);
     }
 
     System.Collections.Generic.HashSet<(int r, int c)> CollectClearedCells(
@@ -1990,7 +2209,10 @@ public class InGameUI : MonoBehaviour
             elapsed += Time.deltaTime;
             float alpha = 1f - Mathf.Clamp01(elapsed / duration);
             foreach (var (r, c) in cells)
-                _blockOverlays[r, c].color = new Color(1f, 1f, 1f, alpha);
+                // 줄에 포함됐어도 살아남는 칸(디스코 무지개 블럭)은 옅어지면 안 된다.
+                // 다른 모드는 클리어된 칸이 전부 0이라 동작이 그대로다.
+                if (_gm.Board[r, c] == 0)
+                    _blockOverlays[r, c].color = new Color(1f, 1f, 1f, alpha);
             yield return null;
         }
     }
