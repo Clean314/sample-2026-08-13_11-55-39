@@ -81,6 +81,31 @@ public class InGameUI : MonoBehaviour
     AudioClip   _sfxToggle;   // 토글 모드: 화이트↔블랙 전환 효과음
     AudioClip   _sfxRainbow;  // 디스코 모드: 무지개 블럭을 탭해 발동시킬 때
 
+    // ── 연속 클리어 콤보 (전 모드 공통) ─────────────────────────
+    // 조각을 놓을 때마다 줄이 나면 콤보가 쌓인다. 1은 그냥 한 번 지운 것이라 아무것도 띄우지 않고,
+    // 2부터 전용 효과음과 문구가 붙어 "연속으로 해내고 있다"를 알려 준다.
+    const int   COMBO_MIN  = 2;      // 이 값부터 연출이 붙는다
+    // 표시·색·크기가 모두 여기서 멈춘다. 콤보 보너스 점수의 상한과 같은 상수를 써서
+    // "x5인데 점수만 더 오르는" 어긋남이 생기지 않게 한다.
+    const int   COMBO_MAX  = GameManager.COMBO_TIER_MAX;
+    const float COMBO_SEC  = 0.85f;  // ── 조정 손잡이: 문구가 떠 있는 시간(초) ──
+    const float COMBO_RISE = 70f;    // ── 조정 손잡이: 떠오르는 거리(px) ──
+    const float COMBO_HOLD = 0.55f;  // ── 조정 손잡이: 이 비율까지 또렷, 이후 옅어짐 ──
+    const float COMBO_POP_SEC = 0.14f;   // 커졌다가(1.35배) 제자리로 돌아오는 데 걸리는 시간
+    static readonly Vector2 COMBO_POS = new Vector2(0, 300);
+
+    // 콤보가 커질수록 뜨거운 색. 인덱스 = min(combo, COMBO_MAX) - COMBO_MIN
+    static readonly Color[] COMBO_COLORS =
+    {
+        new Color(1.00f, 0.85f, 0.30f),  // 2 골드
+        new Color(1.00f, 0.62f, 0.11f),  // 3 주황
+        new Color(1.00f, 0.36f, 0.23f),  // 4 주홍
+        new Color(1.00f, 0.24f, 0.50f),  // 5+ 자홍
+    };
+
+    GameObject  _comboPopup;      // 떠 있는 팝업 하나. 값이 바뀌면 이전 것을 치우고 새로 띄운다.
+    int         _comboPopupValue; // 그 팝업이 보여 주고 있는 콤보 수
+
     // ── 공통 스프라이트 캐시 ────────────────────────────────────
     Sprite _spr110;   // 110×110 r=30  (그리드 셀용)
     Sprite _spr200;   // 200×100 r=36  (버튼용)
@@ -295,7 +320,8 @@ public class InGameUI : MonoBehaviour
         if (_gm == null)
             _gm = new GameObject("GameManager").AddComponent<GameManager>();
 
-        _gm.OnStateChanged += OnGameStateChanged;
+        _gm.OnStateChanged  += OnGameStateChanged;
+        _gm.OnComboCleared += ShowComboPopup;
 
         // 오디오 소스 생성 및 클립 로드
         _audioSource = gameObject.AddComponent<AudioSource>();
@@ -376,7 +402,11 @@ public class InGameUI : MonoBehaviour
 
     void OnDestroy()
     {
-        if (_gm != null) _gm.OnStateChanged -= OnGameStateChanged;
+        if (_gm != null)
+        {
+            _gm.OnStateChanged  -= OnGameStateChanged;
+            _gm.OnComboCleared -= ShowComboPopup;
+        }
 
         // 씬을 떠날 때 BGM을 반드시 정상 상태로 돌려놓는다. 안 그러면 메뉴가 조용해진다.
         //   · 광과민성 경고 도중이면 재개를 맡은 코루틴이 같이 죽어 멈춘 채로 남는다
@@ -1898,6 +1928,84 @@ public class InGameUI : MonoBehaviour
         }
         else
             RefreshGrid();
+    }
+
+    // ── 연속 클리어 콤보 안내 ──────────────────────────────────
+    // 줄을 지우는 순간 화면 가운데 위쪽에 커졌다 떠오르며 사라지는 문구. 소리는 붙이지 않는다 —
+    // 클리어음·배치음이 이미 울리는 자리라 하나 더 얹으면 소리가 뭉개진다.
+    void ShowComboPopup(int combo)
+    {
+        if (combo < COMBO_MIN) return;
+
+        // 한 세트 안에서 여러 번 지우면 같은 값으로 계속 불린다(무지개 연쇄는 0.15초 간격).
+        // 그때마다 다시 띄우면 같은 숫자가 제자리에서 깜빡인다. 값이 그대로면 두던 걸 둔다.
+        if (_comboPopup != null && _comboPopupValue == combo) return;
+        if (_comboPopup != null) Destroy(_comboPopup);
+
+        // 색·크기 단계는 COMBO_MAX까지. 그보다 높은 콤보는 마지막 단계를 계속 쓴다.
+        int tier = Mathf.Min(combo, COMBO_MAX) - COMBO_MIN;
+
+        var go = new GameObject("ComboPopup");
+        go.transform.SetParent(_canvas.transform, false);
+        go.transform.SetAsLastSibling();
+        _comboPopup      = go;
+        _comboPopupValue = combo;
+
+        var txt           = go.AddComponent<Text>();
+        txt.font          = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
+        txt.fontSize      = 92 + tier * 14;   // 콤보가 커질수록 큼직하게
+        txt.fontStyle     = FontStyle.Bold;
+        txt.alignment     = TextAnchor.MiddleCenter;
+        txt.raycastTarget = false;
+        // 상한에 닿으면 숫자 대신 MAX!. 그 위로는 보너스도 안 오르므로 숫자만 커지면 거짓말이 된다.
+        txt.text          = combo >= COMBO_MAX ? "MAX!" : $"x{combo}";
+        txt.color         = COMBO_COLORS[Mathf.Min(tier, COMBO_COLORS.Length - 1)];
+
+        // 밝은 구간(디스코 화이트아웃, 토글 블랙모드)에서도 글자가 읽히게 그림자를 깐다.
+        var shadow            = go.AddComponent<Shadow>();
+        shadow.effectColor    = new Color(0f, 0f, 0f, 0.55f);
+        shadow.effectDistance = new Vector2(4f, -4f);
+
+        var rt       = go.GetComponent<RectTransform>();
+        rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot     = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta = new Vector2(900, 220);
+
+        StartCoroutine(ComboPopupRoutine(rt, txt));
+    }
+
+    IEnumerator ComboPopupRoutine(RectTransform rt, Text txt)
+    {
+        Color baseColor = txt.color;
+        float elapsed   = 0f;
+
+        while (elapsed < COMBO_SEC)
+        {
+            if (rt == null) yield break;   // 다음 콤보가 이미 치웠다
+            elapsed += Time.deltaTime;
+            float t  = Mathf.Clamp01(elapsed / COMBO_SEC);
+
+            // 튀어나오듯 1.35배까지 커졌다가 제자리로. 앞뒤 절반씩 나눠 쓴다.
+            float half  = COMBO_POP_SEC * 0.5f;
+            float scale = elapsed < half
+                ? Mathf.Lerp(0.55f, 1.35f, elapsed / half)
+                : Mathf.Lerp(1.35f, 1f, Mathf.Clamp01((elapsed - half) / half));
+            rt.localScale = Vector3.one * scale;
+
+            // 처음엔 빠르게, 끝으로 갈수록 느리게 떠오른다
+            rt.anchoredPosition = COMBO_POS + new Vector2(0, COMBO_RISE * (1f - (1f - t) * (1f - t)));
+
+            float a = t < COMBO_HOLD ? 1f : 1f - (t - COMBO_HOLD) / (1f - COMBO_HOLD);
+            txt.color = new Color(baseColor.r, baseColor.g, baseColor.b, a);
+
+            yield return null;
+        }
+
+        if (rt != null)
+        {
+            if (_comboPopup == rt.gameObject) _comboPopup = null;
+            Destroy(rt.gameObject);
+        }
     }
 
     // 토글 모드 배경/텍스트 색상 갱신

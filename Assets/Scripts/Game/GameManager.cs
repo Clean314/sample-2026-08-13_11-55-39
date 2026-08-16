@@ -51,8 +51,54 @@ public class GameManager : MonoBehaviour
     int    _combo;
     string _mk;   // 모드별 PlayerPrefs 키 prefix (예: "m0_", "m1_")
 
+    // ── 콤보 ─────────────────────────────────────────────────────
+    // 규칙이 두 갈래다. 헷갈리기 쉬우니 나눠서 적는다.
+    //   · 오르는 건 클리어마다.  한 세트 안에서 두 번 지우면 콤보도 두 번 오른다.
+    //   · 끊기는 건 세트마다.    조각 세 개를 다 쓰도록 한 번도 못 지워야 0으로 돌아간다.
+    // 즉 줄이 안 난 배치 하나로는 안 끊긴다. 세트를 통째로 흘려보내야 끊긴다.
+    bool _clearedThisSet;   // 이번 세트에서 한 번이라도 지웠는지
+
+    /// <summary>연속 클리어 수. 클리어할 때마다 오르고, 조각 한 세트를 아무것도 못 지우고
+    /// 넘겼을 때만 0으로 돌아간다. 1은 그냥 한 번 지운 것이고, 2부터가 "연속"이다.</summary>
+    public int Combo => _combo;
+
+    /// <summary>줄을 지울 때마다 발행. 인자는 갱신된 콤보 수.
+    /// UI가 이걸 받아 콤보 문구를 띄운다 — 문구는 클리어 시점에 떠야 한다.</summary>
+    public System.Action<int> OnComboCleared;
+
+    // 콤보 보너스: 클리어할 때마다 기본 점수 위에 얹는 추가 점수. 콤보가 커질수록 가파르다.
+    //   2 → 50,  3 → 150,  4 → 300,  5 이상 → 500
+    // 상한을 5에 두는 건 화면 표시가 MAX!에서 멈추는 것과 맞추기 위해서다. 화면은 MAX!인데
+    // 점수만 계속 커지면 무엇 때문에 올랐는지 읽히지 않는다. InGameUI가 이 상수를 참조한다.
+    public const int COMBO_TIER_MAX   = 5;
+    const int        COMBO_BONUS_STEP = 25;
+
+    /// <summary>줄을 지웠을 때 콤보를 1 올리고 점수(기본 + 콤보 보너스)를 더합니다.
+    /// 이번 세트를 "지운 세트"로 표시해 두어, 세트가 끝날 때 CloseSet이 안 끊게 한다.
+    /// 클리어가 일어나는 지점이 네 군데(배치·색상변환·아이스 슬라이드·무지개)라 여기 하나로 모은다.</summary>
+    void AddLineScore(int lines)
+    {
+        _clearedThisSet = true;
+        _combo++;
+
+        int tier = Mathf.Min(_combo, COMBO_TIER_MAX);
+        Score += lines * 100 * _combo
+               + (tier >= 2 ? COMBO_BONUS_STEP * tier * (tier - 1) : 0);
+
+        OnComboCleared?.Invoke(_combo);
+    }
+
+    /// <summary>조각 세 개를 다 썼을 때 콤보가 살아남는지 판정합니다.
+    /// 이번 세트에서 한 번이라도 지웠으면 그대로 이어지고, 한 벌을 통째로
+    /// 흘려보냈으면 여기서 끊긴다. 콤보를 올리는 건 이 함수의 일이 아니다.</summary>
+    void CloseSet()
+    {
+        if (!_clearedThisSet) _combo = 0;
+        _clearedThisSet = false;
+    }
+
     /// <summary>이어하기로 시작했는지. false면 이번이 새 판이다.
-    /// 디스코 모드가 BGM을 어디서부터 틀지 판단하는 데 쓴다(InGameUI.Start).
+    /// 디스코 모드가 BGM을 처음부터 틀지 판단하는 데 쓴다(InGameUI.Start).
     /// Awake에서 한 번만 정해지므로 이후 SaveGame이 불려도 값은 변하지 않는다.</summary>
     public bool LoadedFromSave { get; private set; }
 
@@ -112,8 +158,7 @@ public class GameManager : MonoBehaviour
         int lines = ClearFullLines();
         if (lines > 0)
         {
-            _combo++;
-            Score += lines * 100 * _combo;
+            AddLineScore(lines);
 
             // 토글 모드: 클리어 시 색상 토글 + 미배치 조각 색상 갱신 + 게이지 증가
             if (ModeSession.SelectedMode == 2)
@@ -143,9 +188,16 @@ public class GameManager : MonoBehaviour
                 AwardRainbowBlocks();
             }
         }
-        else
+
+        // 3개 모두 배치됐으면 세트를 닫고 새 세트 생성.
+        // 콤보가 끊기는지 보는 자리는 여기 하나뿐이다 — 줄이 안 난 배치 하나로는 안 끊긴다.
+        bool allDone = true;
+        for (int i = 0; i < 3; i++)
+            if (!CurrentPieces[i].placed) { allDone = false; break; }
+        if (allDone)
         {
-            _combo = 0;
+            CloseSet();
+            GenerateNewPieces();
         }
 
         if (Score > HighScore)
@@ -153,13 +205,6 @@ public class GameManager : MonoBehaviour
             HighScore = Score;
             PlayerPrefs.SetInt(_mk + "HighScore", HighScore);
         }
-
-        // 3개 모두 배치됐으면 새 세트 생성
-        bool allDone = true;
-        for (int i = 0; i < 3; i++)
-            if (!CurrentPieces[i].placed) { allDone = false; break; }
-        if (allDone)
-            GenerateNewPieces();
 
         SaveGame();
         OnStateChanged?.Invoke();
@@ -296,8 +341,9 @@ public class GameManager : MonoBehaviour
         // 가로+세로 = 2줄로 쳐서 기존 콤보 점수 체계를 그대로 따른다.
         // 다만 이 2줄은 DiscoLineGauge에 넣지 않는다 — 넣으면 무지개 블럭이 스스로를
         // 다시 불러내는 되먹임이 생긴다(3줄 기준이면 탭 두 번에 새 블럭이 나온다).
-        _combo++;
-        Score += 2 * 100 * _combo;
+        // 조각을 쓰지 않으므로 세트를 마감하지 않는다. 대신 이번 세트를 "지운 세트"로
+        // 표시해 콤보를 살려 준다 — 무지개를 쓴 세트가 콤보를 끊으면 앞뒤가 안 맞는다.
+        AddLineScore(2);
         if (Score > HighScore)
         {
             HighScore = Score;
@@ -326,8 +372,7 @@ public class GameManager : MonoBehaviour
         int lines = ClearFullLines();
         if (lines > 0)
         {
-            _combo++;
-            Score += lines * 100 * _combo;
+            AddLineScore(lines);
 
             ToggleCurrentColor = 1 - ToggleCurrentColor;
             int newColorIdx = ToggleCurrentColor == 0 ? TOGGLE_WHITE_IDX : TOGGLE_BLACK_IDX;
@@ -409,7 +454,9 @@ public class GameManager : MonoBehaviour
                 placed     = false
             };
         }
-        _combo = 0;
+        // 여기서 _combo를 건드리지 않는다. 예전엔 "세트 안에서만 유지되는 콤보"라 새 세트마다
+        // 0으로 밀었는데, 지금은 콤보 단위가 세트 자체다. 밀어버리면 CloseSet이 올린 값이
+        // 바로 다음 줄에서 사라진다. 판을 새로 시작하는 쪽(ResetGame/Revive)에서만 초기화한다.
     }
 
     // ── 아이스모드: 한 칸 슬라이드 ─────────────────────────────
@@ -436,8 +483,7 @@ public class GameManager : MonoBehaviour
         int lines = ClearFullLines();
         if (lines > 0)
         {
-            _combo++;
-            Score += lines * 100 * _combo;
+            AddLineScore(lines);
             if (Score > HighScore)
             {
                 HighScore = Score;
@@ -489,6 +535,7 @@ public class GameManager : MonoBehaviour
                 if (Board[r, c] != RAINBOW_BLOCK_VAL) Board[r, c] = 0;
 
         _combo = 0;
+        _clearedThisSet = false;
         GenerateNewPieces();
         SaveGame();
         OnStateChanged?.Invoke();
@@ -500,6 +547,7 @@ public class GameManager : MonoBehaviour
         Board              = new int[SIZE, SIZE];
         Score              = 0;
         _combo             = 0;
+        _clearedThisSet    = false;
         ToggleCurrentColor = 0;
         SpecialGauge       = 0;
         DiscoLineGauge     = 0;
@@ -521,6 +569,9 @@ public class GameManager : MonoBehaviour
         PlayerPrefs.SetString(_mk + "save_board", sb.ToString());
         PlayerPrefs.SetInt(_mk + "save_score", Score);
         PlayerPrefs.SetInt(_mk + "save_combo", _combo);
+        // 세트 도중에 나갈 수 있으므로 "이번 세트에서 지웠는지"도 같이 남긴다.
+        // 안 그러면 이어하기 때 세트가 초기화돼 다 된 콤보가 끊긴다.
+        PlayerPrefs.SetInt(_mk + "save_cleared_set", _clearedThisSet ? 1 : 0);
         for (int i = 0; i < 3; i++)
         {
             PlayerPrefs.SetInt(_mk + $"save_p{i}_shape",  CurrentPieces[i].shapeIndex);
@@ -577,7 +628,8 @@ public class GameManager : MonoBehaviour
         }
 
         Score  = PlayerPrefs.GetInt(_mk + "save_score", 0);
-        _combo = PlayerPrefs.GetInt(_mk + "save_combo", 0);
+        _combo          = PlayerPrefs.GetInt(_mk + "save_combo", 0);
+        _clearedThisSet = PlayerPrefs.GetInt(_mk + "save_cleared_set", 0) == 1;
         for (int i = 0; i < 3; i++)
             CurrentPieces[i] = new PieceInstance
             {
@@ -594,6 +646,7 @@ public class GameManager : MonoBehaviour
         PlayerPrefs.DeleteKey(_mk + "save_board");
         PlayerPrefs.DeleteKey(_mk + "save_score");
         PlayerPrefs.DeleteKey(_mk + "save_combo");
+        PlayerPrefs.DeleteKey(_mk + "save_cleared_set");
         PlayerPrefs.DeleteKey(_mk + "save_toggle_color");
         PlayerPrefs.DeleteKey(_mk + "save_special_gauge");
         PlayerPrefs.DeleteKey(_mk + "save_disco_gauge");
