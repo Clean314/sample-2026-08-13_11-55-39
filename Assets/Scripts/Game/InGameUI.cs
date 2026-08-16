@@ -86,19 +86,23 @@ public class InGameUI : MonoBehaviour
     // "x5인데 점수만 더 오르는" 어긋남이 생기지 않게 한다.
     const int   COMBO_MAX  = GameManager.COMBO_TIER_MAX;
     const float COMBO_SEC  = 0.85f;  // ── 조정 손잡이: 문구가 떠 있는 시간(초) ──
-    const float COMBO_RISE = 70f;    // ── 조정 손잡이: 떠오르는 거리(px) ──
     const float COMBO_HOLD = 0.55f;  // ── 조정 손잡이: 이 비율까지 또렷, 이후 옅어짐 ──
     const float COMBO_POP_SEC = 0.14f;   // 커졌다가(1.35배) 제자리로 돌아오는 데 걸리는 시간
     static readonly Vector2 COMBO_POS = new Vector2(0, 300);
 
-    // 콤보가 커질수록 뜨거운 색. 인덱스 = min(combo, COMBO_MAX) - COMBO_MIN
-    static readonly Color[] COMBO_COLORS =
-    {
-        new Color(1.00f, 0.85f, 0.30f),  // 2 골드
-        new Color(1.00f, 0.62f, 0.11f),  // 3 주황
-        new Color(1.00f, 0.36f, 0.23f),  // 4 주홍
-        new Color(1.00f, 0.24f, 0.50f),  // 5+ 자홍
-    };
+    // 글자 크기: 단계마다 조금씩 커진다 (x2 → 62, x3 → 71, x4 → 80, MAX! → 89)
+    const int   COMBO_FONT_BASE = 62;    // ── 조정 손잡이: x2일 때의 글자 크기 ──
+    const int   COMBO_FONT_STEP = 9;     // ── 조정 손잡이: 단계마다 커지는 폭 ──
+    // 검정 배경판. 디스코 화이트아웃·토글 블랙모드처럼 밝은 배경 위에서도 글자가 읽히게 한다.
+    // 판이 대비를 만들어 주므로 그림자(Shadow)는 따로 안 깐다.
+    const float COMBO_PLATE_ALPHA = 0.85f; // ── 조정 손잡이: 배경판 불투명도 ──
+    const float COMBO_PLATE_PAD_X = 38f;   // ── 조정 손잡이: 좌우 여백(px) ──
+    const float COMBO_PLATE_PAD_Y = 20f;   // ── 조정 손잡이: 위아래 여백(px) ──
+
+    // x2~x4는 흰 글자, MAX!만 파랑. 색을 한 군데만 쓰면 상한에 닿았다는 게 확실히 도드라진다.
+    // 단계별로 색을 바꾸면 네 가지 색이 번갈아 뜨면서 오히려 산만해진다.
+    static readonly Color COMBO_COLOR     = Color.white;
+    static readonly Color COMBO_COLOR_MAX = new Color(0.35f, 0.70f, 1.00f);
 
     GameObject  _comboPopup;      // 떠 있는 팝업 하나. 값이 바뀌면 이전 것을 치우고 새로 띄운다.
     int         _comboPopupValue; // 그 팝업이 보여 주고 있는 콤보 수
@@ -1942,39 +1946,73 @@ public class InGameUI : MonoBehaviour
         // 색·크기 단계는 COMBO_MAX까지. 그보다 높은 콤보는 마지막 단계를 계속 쓴다.
         int tier = Mathf.Min(combo, COMBO_MAX) - COMBO_MIN;
 
+        // 상한에 닿으면 숫자 대신 MAX!. 그 위로는 보너스도 안 오르므로 숫자만 커지면 거짓말이 된다.
+        bool  atMax = combo >= COMBO_MAX;
+        Color color = atMax ? COMBO_COLOR_MAX : COMBO_COLOR;
+        int   size  = COMBO_FONT_BASE + tier * COMBO_FONT_STEP;
+
+        // 루트는 그래픽 없는 빈 컨테이너다. UGUI는 부모를 먼저 그리고 자식을 그 위에 얹으므로,
+        // 배경판을 글자 뒤에 두려면 글자도 자식이어야 한다(루트에 Text를 달면 판이 위로 온다).
+        // 자리는 고정이다 — 떠오르는 움직임 없이 그 자리에서 커졌다 옅어지기만 한다.
         var go = new GameObject("ComboPopup");
         go.transform.SetParent(_canvas.transform, false);
         go.transform.SetAsLastSibling();
         _comboPopup      = go;
         _comboPopupValue = combo;
 
-        var txt           = go.AddComponent<Text>();
+        var rt              = go.AddComponent<RectTransform>();
+        rt.anchorMin        = rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot            = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta        = new Vector2(900, 220);
+        rt.anchoredPosition = COMBO_POS;
+
+        var labelGo = new GameObject("Label");
+        labelGo.transform.SetParent(go.transform, false);
+        var txt           = labelGo.AddComponent<Text>();
         txt.font          = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
-        txt.fontSize      = 92 + tier * 14;   // 콤보가 커질수록 큼직하게
-        txt.fontStyle     = FontStyle.Bold;
+        txt.fontSize      = size;   // 콤보가 커질수록 큼직하게
+        txt.fontStyle     = FontStyle.BoldAndItalic;
         txt.alignment     = TextAnchor.MiddleCenter;
         txt.raycastTarget = false;
-        // 상한에 닿으면 숫자 대신 MAX!. 그 위로는 보너스도 안 오르므로 숫자만 커지면 거짓말이 된다.
-        txt.text          = combo >= COMBO_MAX ? "MAX!" : $"x{combo}";
-        txt.color         = COMBO_COLORS[Mathf.Min(tier, COMBO_COLORS.Length - 1)];
+        txt.text          = atMax ? "MAX!" : $"x{combo}";
+        txt.color         = color;
 
-        // 밝은 구간(디스코 화이트아웃, 토글 블랙모드)에서도 글자가 읽히게 그림자를 깐다.
-        var shadow            = go.AddComponent<Shadow>();
-        shadow.effectColor    = new Color(0f, 0f, 0f, 0.55f);
-        shadow.effectDistance = new Vector2(4f, -4f);
+        var labelRt              = labelGo.GetComponent<RectTransform>();
+        labelRt.anchorMin        = labelRt.anchorMax = new Vector2(0.5f, 0.5f);
+        labelRt.pivot            = new Vector2(0.5f, 0.5f);
+        labelRt.sizeDelta        = new Vector2(900, 220);
+        labelRt.anchoredPosition = Vector2.zero;
 
-        var rt       = go.GetComponent<RectTransform>();
-        rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
-        rt.pivot     = new Vector2(0.5f, 0.5f);
-        rt.sizeDelta = new Vector2(900, 220);
+        // 배경판. 어떤 배경 위에서도 글자가 읽히게 검정을 깐다.
+        // 글자 실제 폭(preferredWidth)에 여백을 더해 감싼다 — x2와 MAX!는 폭이 꽤 다르다.
+        float plateW = txt.preferredWidth + COMBO_PLATE_PAD_X * 2f;
+        float plateH = size * 1.16f + COMBO_PLATE_PAD_Y * 2f;
 
-        StartCoroutine(ComboPopupRoutine(rt, txt));
+        var plateGo = new GameObject("Plate");
+        plateGo.transform.SetParent(go.transform, false);
+        plateGo.transform.SetAsFirstSibling();   // 글자·선보다 먼저 = 뒤에 깔린다
+        var plateImg           = plateGo.AddComponent<Image>();
+        plateImg.sprite        = _spr110;   // 9-slice 보더가 있어 늘려도 모서리가 유지된다
+        plateImg.type          = Image.Type.Sliced;
+        plateImg.color         = new Color(0.02f, 0.02f, 0.04f, COMBO_PLATE_ALPHA);
+        plateImg.raycastTarget = false;
+
+        var plateRt              = plateGo.GetComponent<RectTransform>();
+        plateRt.anchorMin        = plateRt.anchorMax = new Vector2(0.5f, 0.5f);
+        plateRt.pivot            = new Vector2(0.5f, 0.5f);
+        plateRt.sizeDelta        = new Vector2(plateW, plateH);
+        plateRt.anchoredPosition = Vector2.zero;   // 글자가 가운데 정렬이라 판도 중앙
+
+        // 알파는 CanvasGroup 하나로 몬다. 판과 글자에 따로 걸면 둘이 어긋난다.
+        var cg   = go.AddComponent<CanvasGroup>();
+        cg.alpha = 1f;
+
+        StartCoroutine(ComboPopupRoutine(rt, cg));
     }
 
-    IEnumerator ComboPopupRoutine(RectTransform rt, Text txt)
+    IEnumerator ComboPopupRoutine(RectTransform rt, CanvasGroup cg)
     {
-        Color baseColor = txt.color;
-        float elapsed   = 0f;
+        float elapsed = 0f;
 
         while (elapsed < COMBO_SEC)
         {
@@ -1989,11 +2027,7 @@ public class InGameUI : MonoBehaviour
                 : Mathf.Lerp(1.35f, 1f, Mathf.Clamp01((elapsed - half) / half));
             rt.localScale = Vector3.one * scale;
 
-            // 처음엔 빠르게, 끝으로 갈수록 느리게 떠오른다
-            rt.anchoredPosition = COMBO_POS + new Vector2(0, COMBO_RISE * (1f - (1f - t) * (1f - t)));
-
-            float a = t < COMBO_HOLD ? 1f : 1f - (t - COMBO_HOLD) / (1f - COMBO_HOLD);
-            txt.color = new Color(baseColor.r, baseColor.g, baseColor.b, a);
+            cg.alpha = t < COMBO_HOLD ? 1f : 1f - (t - COMBO_HOLD) / (1f - COMBO_HOLD);
 
             yield return null;
         }
