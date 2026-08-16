@@ -12,7 +12,7 @@ public class MainMenuUI : MonoBehaviour
 {
     // ── 모드 정의 ────────────────────────────────────────────────
     static readonly string[] MODE_IMAGES        = { "Sprites/Modes/normal_mode", "Sprites/Modes/ice_mode", "Sprites/Modes/toggle_mode", "Sprites/Modes/disco_mode" };
-    static readonly int[]    MODE_UNLOCK_SCORE  = { 0, 5000, 10000, 5000 };
+    static readonly int[]    MODE_UNLOCK_SCORE  = { 0, 10000, 20000, 5000 };
     static readonly int[]    MODE_UNLOCK_FROM   = { 0, 0,    1,     2     };  // 어떤 모드의 최고점수를 확인할지
     static readonly string[] MODE_LOC_KEYS      = { "mode_normal", "mode_ice", "mode_toggle", "mode_disco" };
 
