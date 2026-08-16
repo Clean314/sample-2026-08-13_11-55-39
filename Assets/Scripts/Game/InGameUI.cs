@@ -193,6 +193,45 @@ public class InGameUI : MonoBehaviour
     const float  TUNNEL_RAINBOW_PER_Z = 0.12f;   // ── 조정 손잡이: z 1당 색상환 회전 비율(띠 촘촘함) ──
     const float  TUNNEL_RAINBOW_SPEED = 0.80f;   // ── 조정 손잡이: 초당 색상환 회전수(변색 속도) ──
 
+    // ── 터널 빗방울 (곡 마지막) ──────────────────────────────────────
+    // 4분 52.6초부터 곡 끝까지, 터널 안을 알록달록한 작은 점이 스쳐 지나간다.
+    // 링과 같은 원근식(FOCAL/z)과 같은 곡률(TunnelOffset)을 써서 같은 공간에 있는 것처럼 보인다 —
+    // 점이 링을 따라 같이 휘고, 깊이에 따라 크기·속도가 갈려 거리감이 생긴다.
+    const double RAIN_START      = 292.6;   // ── 조정 손잡이: 시작 시각(4분 52.6초) ──
+    // 점 하나가 Image 하나다. 전부 같은 스프라이트라 드로우콜은 한 덩어리로 묶이고,
+    // 비용은 매 프레임 위치·크기·색을 갱신하며 생기는 캔버스 리빌드 쪽이다.
+    const int    RAIN_COUNT      = 180;     // ── 조정 손잡이: 점 개수 ──
+    const float  RAIN_SPEED_MUL  = 1.7f;    // ── 조정 손잡이: 링 대비 다가오는 속도 ──
+    const float  RAIN_WORLD_SIZE = 0.010f;  // 점의 월드 지름 → 화면 크기 = 이 값 × FOCAL / z
+    const float  RAIN_MIN_PX     = 2f;      // 멀리서 1px 밑으로 내려가면 깜빡이므로 하한
+    const float  RAIN_FALL       = 0.06f;   // ── 조정 손잡이: 월드 낙하 속도(단위/초) ──
+    // 낙하량을 미리 위로 되돌려 주는 비율. SpawnRainDot 참고.
+    // 0 = 보정 없음(아래로 쏠림), 0.5 = 수명 한가운데가 원래 자리,
+    // 1.0 = 다 흘러내린 끝에서야 원래 자리(위쪽으로 쏠림).
+    // 가까워서 크게 보이는 쪽에 무게를 실으려고 0.5보다 조금 높게 잡았다.
+    const float  RAIN_RISE_BIAS  = 0.75f;   // ── 조정 손잡이: 시작 높이 보정 ──
+    const float  RAIN_SWAY       = 0.012f;  // ── 조정 손잡이: 좌우로 흩날리는 폭(월드) ──
+    const float  RAIN_FADE_Z     = 1.6f;    // 이 깊이부터 카메라를 스치며 옅어진다
+
+    // ── 곡 마무리와 루프 이음 ────────────────────────────────────────
+    // 곡이 끝나면 BGM은 loop=true로 0초로 되감긴다(BGMManager). 그냥 두면 알록달록한 터널이
+    // 한 프레임 만에 도입부 셀 배경으로 튀므로, 양쪽 끝을 검정으로 만들어 이어 붙인다.
+    //   ENDING_BLACK_START~  터널·빗방울이 옅어지며 화면이 검정으로 정리된다(배경은 이미 검정).
+    //   0~LOOP_FADE_SEC      되감긴 직후 그 검정을 걷어내며 도입부가 드러난다.
+    // 배경 자체는 BLACK2_FULL 이후 계속 검정이라 여기서는 그 위 레이어만 지우면 된다.
+    const double ENDING_BLACK_START = 308.6;  // ── 조정 손잡이: 암전 시작(5분 8.6초) ──
+    const float  ENDING_FADE_SEC    = 2.5f;   // ── 조정 손잡이: 암전에 걸리는 시간 ──
+    const float  LOOP_FADE_SEC      = 2.5f;   // ── 조정 손잡이: 되감긴 뒤 밝아지는 시간 ──
+
+    RectTransform   _rainLayerRt;
+    RectTransform[] _rainRts;
+    Image[]         _rainImgs;
+    float[]         _rainZ;
+    float[]         _rainX, _rainY;   // 터널 축 기준 월드 오프셋 (벽 = 반지름 0.5)
+    float[]         _rainHue;         // 점마다 다른 색상환 위치
+    float[]         _rainPhase;       // 흩날림 위상
+    Sprite          _rainDotSprite;
+
     RectTransform[] _ringRts;
     Image[]         _ringImgs;
     float[]         _ringZ;
@@ -802,7 +841,10 @@ public class InGameUI : MonoBehaviour
         if (_beatTracker != null)
         {
             double t = _beatTracker.PlaybackSec;
-            if      (t >= 48.5 && t < 49.0)  blackout = (float)((t - 48.5) * 2.0);
+            // 곡이 루프로 되감긴 직후. 곡 끝을 검정으로 마무리했으므로 여기서 검정을 걷어
+            // 이어 붙인다. 이 분기가 맨 앞이라 아래 구간들과 겹칠 일이 없다(LOOP_FADE_SEC ≪ 48.5).
+            if      (t < LOOP_FADE_SEC)      blackout = 1f - (float)(t / LOOP_FADE_SEC);
+            else if (t >= 48.5 && t < 49.0)  blackout = (float)((t - 48.5) * 2.0);
             else if (t >= 49.0 && t < 100.1) blackout = 1f;
             else if (t >= 100.1 && t < 100.6) blackout = (float)((100.6 - t) * 2.0);
             // 2차 터널 진입: 검정으로 덮은 뒤 끝까지 검정 배경을 유지한다(터널이 그 위에 뜬다).
@@ -1182,6 +1224,144 @@ public class InGameUI : MonoBehaviour
 
             _ringZ[i] = Mathf.Lerp(TUNNEL_Z_NEAR, TUNNEL_Z_FAR, (i + 0.5f) / TUNNEL_RINGS);
         }
+
+        BuildRainLayer();
+    }
+
+    // 빗방울은 그리드 안, CellLayer와 BlockLayer 사이에 낀다.
+    //   백드롭 · 빈 셀  <  빗방울  <  놓인 블록  <  별
+    // 터널 레이어에 두면 판 전체(불투명한 빈 셀)에 가려 존재감이 없고, 캔버스 최상단에 두면
+    // 점이 UI 앞에 떠다녀 터널 "안"이라는 깊이감이 깨진다. 그 사이가 맞는 자리다.
+    void BuildRainLayer()
+    {
+        _rainDotSprite = MakeDotSprite(32);
+
+        _rainRts   = new RectTransform[RAIN_COUNT];
+        _rainImgs  = new Image[RAIN_COUNT];
+        _rainZ     = new float[RAIN_COUNT];
+        _rainX     = new float[RAIN_COUNT];
+        _rainY     = new float[RAIN_COUNT];
+        _rainHue   = new float[RAIN_COUNT];
+        _rainPhase = new float[RAIN_COUNT];
+
+        var go = new GameObject("TunnelRainLayer");
+        go.transform.SetParent(_gridRt, false);
+        go.transform.SetSiblingIndex(_blockLayerRt.GetSiblingIndex());   // 블록 바로 아래
+
+        var rt          = go.AddComponent<RectTransform>();
+        rt.anchorMin    = rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot        = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta    = Vector2.zero;
+        // 빗방울 좌표는 화면 중앙 기준으로 계산된다(TunnelOffset). 그리드는 (0, 80)만큼
+        // 올라가 있으므로 그만큼 되돌려 원점을 화면 중앙으로 맞춘다.
+        // 그리드에는 마스크가 없어서 960×960 밖으로 나가는 점도 그대로 그려진다.
+        rt.anchoredPosition = -_gridRt.anchoredPosition;
+        _rainLayerRt    = rt;
+        go.SetActive(false);   // RAIN_START 전에는 갱신도 렌더도 하지 않는다
+
+        for (int i = 0; i < RAIN_COUNT; i++)
+        {
+            var dot = new GameObject($"Rain_{i}");
+            dot.transform.SetParent(go.transform, false);
+            var img           = dot.AddComponent<Image>();
+            img.sprite        = _rainDotSprite;
+            img.raycastTarget = false;
+            _rainImgs[i]      = img;
+
+            var drt       = dot.GetComponent<RectTransform>();
+            drt.anchorMin = drt.anchorMax = new Vector2(0.5f, 0.5f);
+            drt.pivot     = new Vector2(0.5f, 0.5f);
+            _rainRts[i]   = drt;
+
+            // z를 깊이 방향으로 고르게 흩어 둔다. 전부 zFar에서 시작하면 켜지는 순간
+            // 한 겹이 통째로 몰려와 "벽이 다가오는" 것처럼 보인다.
+            SpawnRainDot(i, Mathf.Lerp(TUNNEL_Z_NEAR, TUNNEL_Z_FAR, (i + 0.5f) / RAIN_COUNT));
+        }
+    }
+
+    // 점 하나를 깊이 z의 단면 어딘가에 새로 놓는다.
+    void SpawnRainDot(int i, float z)
+    {
+        // 터널 벽(반지름 0.5) 안쪽에 뿌리되 반지름에 sqrt를 씌운다.
+        // 안 씌우면 넓이가 아니라 반지름 기준으로 균등해져 정중앙만 빽빽해진다.
+        float ang = Random.Range(0f, Mathf.PI * 2f);
+        float rad = Mathf.Sqrt(Random.value) * 0.46f;
+
+        // 낙하 보정 ── 알갱이는 다가오는 내내 아래로 흘러서, 화면에서 크게 보이는
+        // 가까운 것들은 이미 낙하량을 거의 다 쓴 뒤다. 그래서 눈에 띄는 알갱이가
+        // 죄다 아래쪽에 몰린다. 앞으로 흘러내릴 만큼을 미리 위에서 시작시켜 상쇄한다.
+        // 남은 거리를 속도로 나눈 게 남은 시간이므로, 상수를 만져도 자동으로 따라온다.
+        float travelSec = (z - TUNNEL_Z_NEAR) / (TUNNEL_SPEED * TUNNEL2_SPEED_MUL * RAIN_SPEED_MUL);
+
+        _rainX[i]     = Mathf.Cos(ang) * rad;
+        _rainY[i]     = Mathf.Sin(ang) * rad + RAIN_FALL * travelSec * RAIN_RISE_BIAS;
+        _rainZ[i]     = z;
+        _rainHue[i]   = Random.value;
+        _rainPhase[i] = Random.Range(0f, Mathf.PI * 2f);
+    }
+
+    // 터널 링과 같은 원근·곡률을 쓴다. 다른 건 점이 축에서 떨어진 만큼 옆으로 밀린다는 것뿐:
+    //     화면 = TunnelOffset(z) + 월드오프셋 × (FOCAL / z)
+    // 링이 지름 1의 원이라 sizeDelta가 FOCAL/z인 것과 같은 식이다.
+    void UpdateTunnelRain(float now, double playbackSec, float intensity)
+    {
+        if (_rainLayerRt == null) return;
+
+        bool on = playbackSec >= RAIN_START && intensity > 0f;
+        if (_rainLayerRt.gameObject.activeSelf != on) _rainLayerRt.gameObject.SetActive(on);
+        if (!on) return;
+
+        float dz = TUNNEL_SPEED * TUNNEL2_SPEED_MUL * RAIN_SPEED_MUL * Time.deltaTime;
+
+        for (int i = 0; i < RAIN_COUNT; i++)
+        {
+            _rainZ[i] -= dz;
+            _rainY[i] -= RAIN_FALL * Time.deltaTime;   // 비처럼 아래로 흘러내린다
+            if (_rainZ[i] <= TUNNEL_Z_NEAR) SpawnRainDot(i, TUNNEL_Z_FAR);
+
+            float z     = _rainZ[i];
+            float scale = TUNNEL_FOCAL / z;
+            float sway  = Mathf.Sin(now * 1.7f + _rainPhase[i]) * RAIN_SWAY;
+
+            _rainRts[i].anchoredPosition =
+                TunnelOffset(z) + new Vector2((_rainX[i] + sway) * scale, _rainY[i] * scale);
+
+            float px = Mathf.Max(RAIN_MIN_PX, RAIN_WORLD_SIZE * scale);
+            _rainRts[i].sizeDelta = new Vector2(px, px);
+
+            // 멀리서 들어올 때 페이드인, 카메라를 스칠 때 페이드아웃.
+            // 스치는 쪽을 안 지우면 화면을 덮는 큰 원반이 되어 눈에 거슬린다.
+            float fadeIn  = Mathf.InverseLerp(TUNNEL_Z_FAR, TUNNEL_Z_FAR - 2f, z);
+            float fadeOut = Mathf.InverseLerp(TUNNEL_Z_NEAR, RAIN_FADE_Z, z);
+            float a       = Mathf.Clamp01(fadeIn) * Mathf.Clamp01(fadeOut) * intensity;
+
+            // 점마다 색상환 위치가 달라 알록달록하고, 시간 항이 더해져 천천히 변색된다.
+            var c = Color.HSVToRGB(Mathf.Repeat(_rainHue[i] + now * 0.12f, 1f), 0.75f, 1f);
+            _rainImgs[i].color = new Color(c.r, c.g, c.b, a);
+        }
+    }
+
+    // 가장자리를 알파로 깎은 원. MakeRoundedSprite는 경계가 딱 떨어져서
+    // 몇 px짜리로 줄이면 각져 보이므로 파티클용은 따로 굽는다.
+    Sprite MakeDotSprite(int size)
+    {
+        var tex = new Texture2D(size, size, TextureFormat.ARGB32, false);
+        tex.filterMode = FilterMode.Bilinear;
+        var   px  = new Color32[size * size];
+        float ctr = (size - 1) * 0.5f;
+        float rad = size * 0.5f;
+
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                float dx = x - ctr, dy = y - ctr;
+                float a  = Mathf.Clamp01((rad - Mathf.Sqrt(dx * dx + dy * dy)) / 1.5f);
+                px[y * size + x] = new Color32(255, 255, 255, (byte)(a * 255f));
+            }
+
+        tex.SetPixels32(px);
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
     }
 
     // 구간 i가 가진 곡률 벡터. 방향은 좌/우로 번갈아 뒤집히므로 "한쪽으로 길게 감다가
@@ -1265,6 +1445,11 @@ public class InGameUI : MonoBehaviour
         else if (playbackSec >= 50.5 && playbackSec < 96.7) intensity = 1f;
         else if (second) intensity = Mathf.Clamp01((float)((playbackSec - TUNNEL2_START) / TUNNEL2_FADE_SEC));
 
+        // 곡 마무리 암전. 배경은 BLACK2_FULL부터 이미 검정이므로 그 위의 터널·빗방울만
+        // 지우면 화면이 통째로 검게 남는다. 빗방울도 이 intensity를 그대로 받는다.
+        if (playbackSec >= ENDING_BLACK_START)
+            intensity *= 1f - Mathf.Clamp01((float)((playbackSec - ENDING_BLACK_START) / ENDING_FADE_SEC));
+
         // 페이즈별 색/회전속도 (즉시 전환, 그라데이션 없음)
         Color baseColor   = TUNNEL_COLOR;
         float angularDeg  = 0f;
@@ -1336,6 +1521,8 @@ public class InGameUI : MonoBehaviour
             for (int i = 0; i < _spokeImgs.Length; i++)
                 _spokeImgs[i].color = new Color(c.r, c.g, c.b, spokeAlpha);
         }
+
+        UpdateTunnelRain(now, playbackSec, intensity);
     }
 
     // 깊이 z에 있는 단면의 색. 터널 축 위의 절대 위치(travel + z)로 색상을 정하므로
