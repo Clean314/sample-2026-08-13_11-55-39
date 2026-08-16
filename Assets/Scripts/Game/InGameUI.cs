@@ -39,16 +39,13 @@ public class InGameUI : MonoBehaviour
     // SCDream4/8에는 ♫(U+266B)가 빠져 있어 ♪(U+266A)와 ♬(U+266C)만 쓴다(cmap 확인).
     // 없는 글자를 넣으면 에디터에서는 OS 폰트로 대체돼 멀쩡히 보이다가 모바일 빌드에서 빈칸이 된다.
     static readonly string[] NOTE_GLYPHS = { "♪", "♬" };
-    // NOTE_PER_LINE이 8이면 줄을 8등분해 칸마다 정확히 하나씩 뜬다(구간 폭 = 1칸).
-    // 여기서 더 늘리면 같은 칸에 두 개가 겹쳐 올라간다.
-    const int   NOTE_PER_LINE = 8;      // ── 조정 손잡이: 클리어된 줄 하나당 음표 개수 ──
-    const float NOTE_SEC      = 0.4f;   // ── 조정 손잡이: 음표 하나가 떠 있는 시간(초) ──
-    const float NOTE_SIZE     = 40;     // ── 조정 손잡이: 글자 크기(px) ──
-    // 상승 거리는 시간과 같이 봐야 한다. 0.4초 / 85px ≈ 212 px/s.
-    const float NOTE_RISE     = 85f;    // ── 조정 손잡이: 총 상승 거리(px) ──
-    const float NOTE_ALPHA    = 0.65f;  // ── 조정 손잡이: 가장 진할 때의 불투명도 ──
-    const float NOTE_HOLD     = 0.62f;  // ── 조정 손잡이: 이 비율까지 NOTE_ALPHA 유지, 이후 급히 사라짐 ──
-    const float NOTE_STAGGER  = 0.07f;  // ── 조정 손잡이: 음표마다 어긋나는 시작 시각(초) ──
+    // 지워진 칸 자리에 음표를 하나씩 남겼다가 옅어지게 한다. 떠오르는 파티클보다
+    // "여기가 방금 비었다"가 또렷하게 읽히고, 격자를 벗어나지 않아 화면이 깔끔하다.
+    const float NOTE_SEC      = 0.55f;  // ── 조정 손잡이: 음표가 남아 있는 시간(초) ──
+    const int   NOTE_SIZE     = 62;     // ── 조정 손잡이: 글자 크기(px, 셀은 110) ──
+    const float NOTE_ALPHA    = 0.32f;  // ── 조정 손잡이: 가장 진할 때의 불투명도 ──
+    const float NOTE_HOLD     = 0.55f;  // ── 조정 손잡이: 이 비율까지 NOTE_ALPHA 유지, 이후 사라짐 ──
+    const float NOTE_STAGGER  = 0.07f;  // ── 조정 손잡이: 칸마다 어긋나는 시작 시각(초) ──
 
     // 무지개 블럭 발동으로 들어온 클리어인지. ActivateRainbowBlock이 OnStateChanged를 동기로
     // 부르며 일반 줄 클리어 연출을 그대로 태우기 때문에, 그쪽만 골라내려면 표시가 필요하다.
@@ -2564,10 +2561,10 @@ public class InGameUI : MonoBehaviour
     {
         var cells = CollectClearedCells(_gm.LastClearedRows, _gm.LastClearedCols);
 
-        // 디스코 일반 클리어에만 음표를 띄운다. 무지개 블럭 발동은 자체 파티클이 있어 제외.
-        // 음표는 블록이 사라진 뒤에도 한참 떠 있으므로 기다리지 않고 따로 돌린다.
+        // 디스코 일반 클리어에만 음표를 남긴다. 무지개 블럭 발동은 자체 파티클이 있어 제외.
+        // 음표는 블록이 사라진 뒤에도 한참 남아 있으므로 기다리지 않고 따로 돌린다.
         if (ModeSession.SelectedMode == 3 && !_rainbowActivating)
-            StartCoroutine(PlayClearNotes());
+            StartCoroutine(PlayClearNotes(cells));
 
         yield return StartCoroutine(FlashAndFade(cells));
         RefreshGrid();
@@ -2576,41 +2573,27 @@ public class InGameUI : MonoBehaviour
             yield return StartCoroutine(IceSlideAndChain());
     }
 
-    // ── 디스코 일반 클리어: 음표 파티클 ──────────────────────────────
-    // 클리어된 줄마다 음표가 느리게 떠오르다 끝에서 빠르게 사라진다.
+    // ── 디스코 일반 클리어: 비워진 칸에 남는 음표 ────────────────────
+    // 지워진 칸 자리에 음표가 그대로 떠서 잠깐 머물다 옅어진다.
     //
     // FX 루트는 무지개 폭발과 같은 이유로 캔버스 최상단 자식에 단다 — 그리드 아래에 두면
     // 나중에 생성된 캔버스 자식(트레이·점수)에 가려지고, 음표는 그리드 위로 올라가므로 특히 겹친다.
     // 좌표는 그리드 로컬 → 캔버스인데 둘 다 화면 중앙 앵커라 그리드 오프셋만 더하면 된다.
-    IEnumerator PlayClearNotes()
+    // 지워진 칸마다 음표를 하나 남긴다. 칸 자리에 그대로 떠서 옅어지므로 격자를 안 벗어난다.
+    // 셀 목록은 다음 클리어에 덮어써지는 LastClearedRows/Cols에서 이미 뽑아 온 것을 받는다.
+    IEnumerator PlayClearNotes(System.Collections.Generic.HashSet<(int r, int c)> cells)
     {
-        if (_canvas == null || _gm == null) yield break;
+        if (_canvas == null || _gm == null || cells == null || cells.Count == 0) yield break;
 
-        int lines = _gm.LastClearedRows.Count + _gm.LastClearedCols.Count;
-        if (lines == 0) yield break;
+        // 줄에 속해 있어도 살아남는 칸(무지개 블럭)에는 음표를 얹지 않는다 — 비지 않았으니까.
+        // 보드는 ClearFullLines에서 이미 갱신된 뒤라 지금 값이 맞다.
+        var spots = new System.Collections.Generic.List<(int r, int c)>(cells.Count);
+        foreach (var (r, c) in cells)
+            if (_gm.Board[r, c] == 0) spots.Add((r, c));
+        if (spots.Count == 0) yield break;
 
-        // 줄 목록은 다음 클리어에 덮어써지므로 위치를 지금 다 뽑아둔다.
         Vector2 gridOff = _gridRt != null ? _gridRt.anchoredPosition : Vector2.zero;
-        int n = lines * NOTE_PER_LINE;
-        var origins = new Vector2[n];
-        int k = 0;
-
-        // 줄을 NOTE_PER_LINE 등분해 구간마다 하나씩 뽑는다. 그냥 무작위로 뽑으면
-        // 두 음표가 같은 칸에서 겹쳐 떠올라 한 개처럼 보이는 경우가 생긴다.
-        foreach (int r in _gm.LastClearedRows)
-            for (int i = 0; i < NOTE_PER_LINE; i++)
-            {
-                int c = Random.Range(i * GameManager.SIZE / NOTE_PER_LINE,
-                                     (i + 1) * GameManager.SIZE / NOTE_PER_LINE);
-                origins[k++] = gridOff + new Vector2(-420f + c * 120f, 420f - r * 120f);
-            }
-        foreach (int c in _gm.LastClearedCols)
-            for (int i = 0; i < NOTE_PER_LINE; i++)
-            {
-                int r = Random.Range(i * GameManager.SIZE / NOTE_PER_LINE,
-                                     (i + 1) * GameManager.SIZE / NOTE_PER_LINE);
-                origins[k++] = gridOff + new Vector2(-420f + c * 120f, 420f - r * 120f);
-            }
+        int n = spots.Count;
 
         var root = new GameObject("ClearNoteFX");
         root.transform.SetParent(_canvas.transform, false);
@@ -2620,7 +2603,6 @@ public class InGameUI : MonoBehaviour
         rootRt.offsetMin = rootRt.offsetMax = Vector2.zero;
         root.transform.SetAsLastSibling();
 
-        var rts    = new RectTransform[n];
         var txts   = new Text[n];
         var delays = new float[n];
 
@@ -2631,46 +2613,41 @@ public class InGameUI : MonoBehaviour
 
         for (int i = 0; i < n; i++)
         {
-            var go = new GameObject($"Note_{i}");
+            var (r, c) = spots[i];
+
+            var go = new GameObject($"Note_{r}_{c}");
             go.transform.SetParent(root.transform, false);
 
             var t           = go.AddComponent<Text>();
             t.font          = Font4();
-            t.fontSize      = (int)NOTE_SIZE;
+            t.fontSize      = NOTE_SIZE;
             t.alignment     = TextAnchor.MiddleCenter;
             t.text          = NOTE_GLYPHS[(i + glyphOffset) % NOTE_GLYPHS.Length];
-            t.color         = Color.white;
+            t.color         = new Color(1f, 1f, 1f, 0f);
             t.raycastTarget = false;
 
+            // 셀과 같은 자리, 셀 크기(110)에 맞춘 칸. 그리드가 (0, 80)만큼 올라가 있으므로 더한다.
             var rt              = go.GetComponent<RectTransform>();
             rt.anchorMin        = rt.anchorMax = new Vector2(0.5f, 0.5f);
             rt.pivot            = new Vector2(0.5f, 0.5f);
-            rt.sizeDelta        = new Vector2(NOTE_SIZE * 2f, NOTE_SIZE * 2f);
-            rt.anchoredPosition = origins[i];
+            rt.sizeDelta        = new Vector2(110f, 110f);
+            rt.anchoredPosition = gridOff + new Vector2(-420f + c * 120f, 420f - r * 120f);
 
-            rts[i]    = rt;
             txts[i]   = t;
-            delays[i] = Random.Range(0f, NOTE_STAGGER);   // 동시에 튀어나오지 않게 조금씩 어긋내기
+            delays[i] = Random.Range(0f, NOTE_STAGGER);   // 한꺼번에 켜지지 않게 조금씩 어긋내기
         }
 
-        float maxDelay = 0f;
-        for (int i = 0; i < n; i++) maxDelay = Mathf.Max(maxDelay, delays[i]);
-
         float elapsed = 0f;
-        while (elapsed < maxDelay + NOTE_SEC)
+        while (elapsed < NOTE_STAGGER + NOTE_SEC)
         {
             elapsed += Time.deltaTime;
             for (int i = 0; i < n; i++)
             {
                 float t = Mathf.Clamp01((elapsed - delays[i]) / NOTE_SEC);
 
-                // 처음이 조금 빠르고 갈수록 느려진다 — 떠오르다 힘이 빠지는 느낌
-                float rise = (1f - (1f - t) * (1f - t)) * NOTE_RISE;
-                rts[i].anchoredPosition = origins[i] + new Vector2(0f, rise);
-
-                // 잠깐 나타났다가 NOTE_HOLD까지 떠 있고, 그 뒤 남은 구간에 급히 빠진다.
-                // 가장 진할 때도 NOTE_ALPHA라 배경이 비쳐 파티클처럼 가볍게 읽힌다.
-                float a = t < 0.12f ? t / 0.12f
+                // 켜지고 → NOTE_HOLD까지 그대로 → 남은 구간에 옅어진다.
+                // 가장 진할 때도 NOTE_ALPHA라 뒤가 훤히 비쳐 잔상처럼 읽힌다.
+                float a = t < 0.10f ? t / 0.10f
                         : t < NOTE_HOLD ? 1f
                         : 1f - (t - NOTE_HOLD) / (1f - NOTE_HOLD);
                 txts[i].color = new Color(1f, 1f, 1f, Mathf.Clamp01(a) * NOTE_ALPHA);
