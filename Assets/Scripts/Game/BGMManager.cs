@@ -9,6 +9,7 @@ public class BGMManager : MonoBehaviour
 
     AudioSource _source;
     bool        _muted;
+    Coroutine   _fadeCo;
 
     const string PREF_MUTE = "bgm_muted";
 
@@ -84,6 +85,54 @@ public class BGMManager : MonoBehaviour
     public void Resume()
     {
         if (_source.clip != null) _source.UnPause();
+    }
+
+    // 테이프 데크의 전원을 끊은 것처럼 감속하며 멎는 소리. pitch는 재생 속도이자 음정이라
+    // 이 값을 내리면 느려지는 동시에 음이 낮아진다 — 그게 이 효과의 정체다.
+    // 0까지 내리면 정지라 아무 소리도 안 나므로, 거의 멎은 지점에서 끊는다.
+    // (음수는 역재생이라 절대 넘기면 안 된다)
+    const float TAPE_STOP_MIN_PITCH = 0.06f;
+
+    /// <summary>seconds에 걸쳐 음이 쭉 낮아지며 멎은 뒤 그 자리에서 멈춥니다.
+    /// 볼륨·피치가 내려간 채로 남으므로, 다시 들려주려면 반드시 RestorePlayback을 먼저 불러야 합니다.</summary>
+    public void TapeStop(float seconds)
+    {
+        if (_fadeCo != null) StopCoroutine(_fadeCo);
+        _fadeCo = StartCoroutine(TapeStopRoutine(seconds));
+    }
+
+    System.Collections.IEnumerator TapeStopRoutine(float seconds)
+    {
+        float vol0 = _source.volume;
+        float pit0 = _source.pitch;
+
+        for (float e = 0f; e < seconds; e += Time.deltaTime)
+        {
+            float t = Mathf.Clamp01(e / seconds);
+
+            // 피치는 선형으로 내린다. 음정은 로그로 인지되므로, 재생 속도를 일정하게
+            // 떨어뜨리면 귀에는 끝으로 갈수록 급히 처지는 그 특유의 곡선으로 들린다.
+            _source.pitch = Mathf.Lerp(pit0, TAPE_STOP_MIN_PITCH, t);
+
+            // 볼륨은 늦게 뺀다. 초반부터 같이 줄이면 음이 처지는 게 안 들리고
+            // 그냥 페이드아웃으로 들려서 효과가 사라진다.
+            _source.volume = vol0 * (1f - t * t);
+
+            yield return null;
+        }
+
+        _source.volume = 0f;
+        _source.Pause();
+        _fadeCo = null;
+    }
+
+    /// <summary>진행 중인 페이드를 끊고 볼륨·피치를 원래대로 되돌립니다.
+    /// 씬을 떠나거나 다시 재생하기 전에 부르지 않으면 소리 없이, 혹은 늘어진 채로 재생됩니다.</summary>
+    public void RestorePlayback()
+    {
+        if (_fadeCo != null) { StopCoroutine(_fadeCo); _fadeCo = null; }
+        _source.volume = 1f;
+        _source.pitch  = 1f;
     }
 
     /// <summary>씬 어디서든 호출해도 인스턴스를 반환하거나 새로 생성합니다.</summary>

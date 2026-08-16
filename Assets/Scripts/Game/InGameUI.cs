@@ -61,6 +61,10 @@ public class InGameUI : MonoBehaviour
     // ── 부활 ────────────────────────────────────────────────────
     bool _reviveUsed = false;   // 한 게임에 한 번만 부활 허용
 
+    // 떠 있는 게임오버 오버레이. 판정 지점이 여러 곳(조각 놓기, 클리어 연출, 아이스 슬라이드,
+    // 무지개 연쇄)이라 겹쳐 불릴 수 있어서, 두 장이 쌓이지 않게 붙잡아 둔다.
+    GameObject _gameOverOverlay;
+
     // ── 드래그 상태 ─────────────────────────────────────────────
     int           _dragIdx      = -1;
     bool          _dragging     = false;
@@ -374,8 +378,12 @@ public class InGameUI : MonoBehaviour
     {
         if (_gm != null) _gm.OnStateChanged -= OnGameStateChanged;
 
-        // 광과민성 경고 도중에 씬을 떠나면 재개를 맡은 코루틴이 같이 죽어,
-        // BGM이 멈춘 채로 메뉴까지 따라간다. 멈춘 적 없으면 무시되므로 무조건 불러도 안전하다.
+        // 씬을 떠날 때 BGM을 반드시 정상 상태로 돌려놓는다. 안 그러면 메뉴가 조용해진다.
+        //   · 광과민성 경고 도중이면 재개를 맡은 코루틴이 같이 죽어 멈춘 채로 남는다
+        //   · 게임오버 페이드 도중이면 볼륨이 0인 채로 남는다(페이드 코루틴은 BGMManager 소유라
+        //     씬을 넘어가도 계속 돌아 결국 Pause까지 간다)
+        // 둘 다 해당 없으면 아무 일도 하지 않으므로 무조건 불러도 안전하다.
+        BGMManager.Instance?.RestorePlayback();   // 진행 중인 페이드부터 끊는다
         BGMManager.Instance?.Resume();
     }
 
@@ -3292,17 +3300,54 @@ public class InGameUI : MonoBehaviour
     // 게임 오버
     // ═══════════════════════════════════════════════════════════
 
+    // 디스코 게임오버. 암전을 소리와 같은 길이로 맞춰, 음이 처지는 만큼 화면도 같이 닫히게 한다.
+    // 상수를 둘로 나눠 둔 건 따로 만질 여지를 남기려는 것뿐이다.
+    const float GAMEOVER_TAPE_SEC = 1.2f;   // ── 조정 손잡이: 음이 낮아지며 멎는 시간(초) ──
+    const float GAMEOVER_FADE_SEC = 1.2f;   // ── 조정 손잡이: 화면이 검어지는 시간(초) ──
+
+    IEnumerator FadeInCanvasGroup(CanvasGroup cg, float seconds)
+    {
+        for (float e = 0f; e < seconds; e += Time.deltaTime)
+        {
+            if (cg == null) yield break;
+            cg.alpha = e / seconds;
+            yield return null;
+        }
+        if (cg != null) cg.alpha = 1f;
+    }
+
     void ShowGameOver()
     {
+        // 디스코는 연출이 곡에 얹혀 있어서, 게임이 끝났는데 음악만 계속 돌면 붕 뜬다.
+        // 테이프가 멎듯 음을 끌어내리고 화면을 완전한 검정으로 덮어 한 곡을 닫는다.
+        bool discoMode = ModeSession.SelectedMode == 3;
+
+        // 이미 떠 있으면 두 번 쌓지 않는다. 두 장이 겹치면 반투명이 두 겹으로 진해지고,
+        // 아래 장이 버튼을 먹어 부활·다시시작이 안 눌린다.
+        if (_gameOverOverlay != null) return;
+
         var overlayGo = new GameObject("GameOverOverlay");
         overlayGo.transform.SetParent(_canvas.transform, false);
+        overlayGo.transform.SetAsLastSibling();
         var overlayImg = overlayGo.AddComponent<Image>();
-        overlayImg.color = new Color(0, 0, 0, 0.78f);
+        // 다른 모드는 판이 비쳐 보이는 78% 반투명 그대로. 디스코만 완전 암전.
+        overlayImg.color = discoMode ? Color.black : new Color(0, 0, 0, 0.78f);
         var overlayRt = overlayGo.GetComponent<RectTransform>();
         overlayRt.anchorMin = Vector2.zero;
         overlayRt.anchorMax = Vector2.one;
         overlayRt.offsetMin = Vector2.zero;
         overlayRt.offsetMax = Vector2.zero;
+        _gameOverOverlay = overlayGo;
+
+        if (discoMode)
+        {
+            BGMManager.Instance?.TapeStop(GAMEOVER_TAPE_SEC);
+
+            // 암전은 소리와 같은 길이로 나란히 닫힌다.
+            var cg   = overlayGo.AddComponent<CanvasGroup>();
+            cg.alpha = 0f;
+            StartCoroutine(FadeInCanvasGroup(cg, GAMEOVER_FADE_SEC));
+        }
 
         var loc = LocalizationManager.Instance;
 
@@ -3354,6 +3399,15 @@ public class InGameUI : MonoBehaviour
                     onRewarded: () =>
                     {
                         _reviveUsed = true;
+
+                        // 부활은 같은 판을 이어가는 것이므로 곡도 끊긴 자리에서 이어 붙인다.
+                        if (discoMode)
+                        {
+                            BGMManager.Instance?.RestorePlayback();
+                            BGMManager.Instance?.Resume();
+                        }
+
+                        _gameOverOverlay = null;
                         Destroy(overlayGo);
                         _gm.Revive();
                     },
@@ -3383,6 +3437,16 @@ public class InGameUI : MonoBehaviour
         btn.onClick.AddListener(() =>
         {
             _reviveUsed = false;
+
+            // 디스코는 곡을 처음부터 다시 튼다. 새 판이니 연출도 도입부부터 시작해야 한다.
+            // 되감은 직후 구간(t < LOOP_FADE_SEC)이 검정에서 밝아오는 램프라, 암전이 그대로 이어진다.
+            if (discoMode)
+            {
+                BGMManager.Instance?.RestorePlayback();
+                BGMManager.Instance?.Seek(0.0);   // 멈춰 있으면 Seek이 재생까지 다시 건다
+            }
+
+            _gameOverOverlay = null;
             Destroy(overlayGo);
             _gm.ResetGame();
         });
