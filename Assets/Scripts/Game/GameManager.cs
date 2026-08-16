@@ -140,18 +140,14 @@ public class GameManager : MonoBehaviour
 
         var piece = CurrentPieces[idx];
         var shape = PieceData.Shapes[piece.shapeIndex];
-        int cells = 0;
-
         for (int r = 0; r < shape.Length; r++)
             for (int c = 0; c < shape[r].Length; c++)
             {
                 if (shape[r][c] == 0) continue;
                 Board[row + r, col + c] = piece.colorIndex + 1;
-                cells++;
             }
 
-        // 기본 점수: 칸당 10점
-        Score += cells * 10;
+        // 조각을 놓는 것만으로는 점수가 없다. 점수는 줄을 지웠을 때만 들어온다(AddLineScore).
         CurrentPieces[idx].placed = true;
 
         // 줄 클리어 + 콤보
