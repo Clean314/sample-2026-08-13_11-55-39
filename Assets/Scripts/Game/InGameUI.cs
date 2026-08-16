@@ -1939,12 +1939,58 @@ public class InGameUI : MonoBehaviour
         {
             // 발동하면 보드에서 즉시 사라지므로 연타해도 두 번 터지지 않는다
             if (_gm.Board[r, c] == GameManager.RAINBOW_BLOCK_VAL)
-                StartCoroutine(PlayRainbowBurst(r, c));
+                StartCoroutine(PlayRainbowChain(r, c));
             return;
         }
 
         if (_gm.Board[r, c] != GameManager.SPECIAL_BLOCK_VAL) return;
         ShowColorSwapPopup();
+    }
+
+    // ── 디스코 무지개 블럭 연쇄 발동 ──────────────────────────────
+    // 하나를 탭하면 보드에 남아 있는 나머지도 전부 따라 터진다. 블럭을 안 쓰고 모아 두면
+    // 여러 개가 쌓이는데, 하나씩 눌러 없애게 하면 같은 연출이 지루하게 반복된다.
+    //
+    // 동시에 터뜨리지 않고 조금씩 어긋나게 하는 이유: 한 프레임에 다 터지면 화면 플래시와
+    // 발동음이 겹쳐 한 덩어리로 뭉개진다. 간격을 두면 "번져 나가는 연쇄"로 읽힌다.
+    const float RAINBOW_CHAIN_GAP = 0.15f;   // ── 조정 손잡이: 연쇄 사이 간격(초) ──
+
+    IEnumerator PlayRainbowChain(int row, int col)
+    {
+        // 탭한 칸을 맨 앞에 두고, 나머지는 거기서 가까운 순으로 번지게 한다.
+        var targets = new System.Collections.Generic.List<(int r, int c)> { (row, col) };
+        for (int r = 0; r < GameManager.SIZE; r++)
+            for (int c = 0; c < GameManager.SIZE; c++)
+                if (_gm.Board[r, c] == GameManager.RAINBOW_BLOCK_VAL && !(r == row && c == col))
+                    targets.Add((r, c));
+
+        // 첫 칸은 정렬에서 빼야 한다 — 거리 0이라 어차피 맨 앞이지만, 순서를 못박아 둔다.
+        targets.Sort(1, targets.Count - 1, System.Collections.Generic.Comparer<(int r, int c)>.Create(
+            (a, b) => (Mathf.Abs(a.r - row) + Mathf.Abs(a.c - col))
+                .CompareTo(Mathf.Abs(b.r - row) + Mathf.Abs(b.c - col))));
+
+        for (int i = 0; i < targets.Count; i++)
+        {
+            var (r, c) = targets[i];
+
+            // 십자 클리어는 다른 무지개 블럭을 남기므로(GameManager.ActivateRainbowBlock)
+            // 여기 좌표는 연쇄가 끝날 때까지 유효하다. 그래도 연타로 같은 칸이 먼저
+            // 터졌을 수 있으니 한 번 더 확인하고 넘어간다.
+            if (_gm.Board[r, c] != GameManager.RAINBOW_BLOCK_VAL) continue;
+
+            StartCoroutine(PlayRainbowBurst(r, c));
+            if (i < targets.Count - 1) yield return new WaitForSeconds(RAINBOW_CHAIN_GAP);
+        }
+
+        // 무지개 발동은 조각을 놓는 경로가 아니라서 기존 게임오버 판정을 하나도 안 거친다.
+        // 그래서 십자를 비워도 자리가 안 나면, 조각을 집었다 놓기 전까지 게임이 멈춘 것처럼
+        // 보였다. 연쇄가 끝난 뒤 여기서 직접 확인한다.
+        // (HasAnyValidMove는 무지개 블럭이 하나라도 남아 있으면 true다. 여기선 다 터진 뒤라 안전하다)
+        yield return new WaitForSeconds(RAINBOW_BURST_SEC * 0.5f);   // 폭발이 한풀 꺾일 때까지
+
+        // 기다리는 사이 조각을 집었으면 넘긴다 — EndDrag가 어차피 같은 판정을 한다.
+        if (!_dragging && !_gm.HasAnyValidMove())
+            ShowGameOver();
     }
 
     // ── 디스코 무지개 블럭: 탭 → 가로세로 클리어 + 파티클 폭발 ──

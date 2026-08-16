@@ -274,7 +274,9 @@ public class GameManager : MonoBehaviour
 
     /// <summary>
     /// 무지개 블럭 발동: 해당 칸의 가로·세로 한 줄을 통째로 비운다.
-    /// 같은 줄 위의 다른 무지개 블럭은 남는다 (탭으로만 없어진다는 규칙 유지).
+    /// 같은 줄 위의 다른 무지개 블럭은 남는다 — 여기서 같이 지우면 그 블럭 몫의 폭발 연출이
+    /// 통째로 사라진다. 남은 블럭까지 이어 터뜨리는 건 InGameUI.PlayRainbowChain이 맡아,
+    /// 하나씩 순서대로 이 함수를 다시 부른다.
     /// 이펙트용으로 LastClearedRows/Cols를 채워 두므로 호출 측에서 클리어 연출을 그대로 쓸 수 있다.
     /// </summary>
     public bool ActivateRainbowBlock(int row, int col)
