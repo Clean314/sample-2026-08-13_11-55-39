@@ -51,13 +51,22 @@ public class GameManager : MonoBehaviour
     int    _combo;
     string _mk;   // 모드별 PlayerPrefs 키 prefix (예: "m0_", "m1_")
 
+    /// <summary>이어하기로 시작했는지. false면 이번이 새 판이다.
+    /// 디스코 모드가 BGM을 어디서부터 틀지 판단하는 데 쓴다(InGameUI.Start).
+    /// Awake에서 한 번만 정해지므로 이후 SaveGame이 불려도 값은 변하지 않는다.</summary>
+    public bool LoadedFromSave { get; private set; }
+
+    /// <summary>이어하기로 복원한 디스코 BGM 재생 위치(초). 새 판이거나 다른 모드면 0.</summary>
+    public double SavedBgmSec { get; private set; }
+
     // ─────────────────────────────────────────────────────────────
     void Awake()
     {
         _mk       = $"m{ModeSession.SelectedMode}_";
         Board     = new int[SIZE, SIZE];
         HighScore = PlayerPrefs.GetInt(_mk + "HighScore", 0);
-        if (!LoadGame())
+        LoadedFromSave = LoadGame();
+        if (!LoadedFromSave)
             GenerateNewPieces();
     }
 
@@ -522,9 +531,15 @@ public class GameManager : MonoBehaviour
             PlayerPrefs.SetInt(_mk + "save_toggle_color",   ToggleCurrentColor);
             PlayerPrefs.SetInt(_mk + "save_special_gauge",  SpecialGauge);
         }
-        // 디스코 모드: 무지개 블럭 게이지 저장
+        // 디스코 모드: 무지개 블럭 게이지 + 곡 재생 위치 저장.
+        // 디스코는 재생 위치가 곧 연출 타임라인이라, 판만 되돌리고 곡을 안 되돌리면
+        // 밤거리에서 나갔다가 터널에서 이어받는 식이 된다.
         if (ModeSession.SelectedMode == 3)
+        {
             PlayerPrefs.SetInt(_mk + "save_disco_gauge", DiscoLineGauge);
+            if (BGMManager.Instance != null)
+                PlayerPrefs.SetFloat(_mk + "save_disco_bgm", (float)BGMManager.Instance.PositionSec);
+        }
 
         PlayerPrefs.SetInt(_mk + "save_flag", 1);
         PlayerPrefs.Save();
@@ -550,10 +565,14 @@ public class GameManager : MonoBehaviour
             SpecialGauge       = Mathf.Clamp(PlayerPrefs.GetInt(_mk + "save_special_gauge", 0), 0, 1);
         }
 
-        // 디스코 모드: 무지개 블럭 게이지 복원
+        // 디스코 모드: 무지개 블럭 게이지 + 곡 재생 위치 복원.
+        // 키가 없는 옛 저장은 0 — 곡을 처음부터 트는 셈이라 그대로 두어도 무해하다.
         if (ModeSession.SelectedMode == 3)
+        {
             DiscoLineGauge = Mathf.Clamp(
                 PlayerPrefs.GetInt(_mk + "save_disco_gauge", 0), 0, DISCO_LINES_PER_RAINBOW - 1);
+            SavedBgmSec = PlayerPrefs.GetFloat(_mk + "save_disco_bgm", 0f);
+        }
 
         Score  = PlayerPrefs.GetInt(_mk + "save_score", 0);
         _combo = PlayerPrefs.GetInt(_mk + "save_combo", 0);

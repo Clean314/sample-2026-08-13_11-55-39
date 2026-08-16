@@ -303,6 +303,21 @@ public class InGameUI : MonoBehaviour
         // 모드에 맞는 BGM으로 전환
         BGMManager.GetOrCreate().PlayBGM(ModeConfig.Current.bgmClip);
 
+        // 디스코 모드는 곡 재생 위치가 곧 연출 타임라인이다(밤거리 → 터널 → 암전).
+        // 그런데 메인 메뉴에서 모드를 넘겨보는 동안 이미 disco 클립이 돌고 있어서,
+        // PlayBGM이 "같은 클립"이라며 그냥 지나친다 → 그대로 두면 메뉴에서 흘러간
+        // 아무 지점에서 시작한다. 새 판이면 처음으로, 이어하기면 저장해 둔 자리로 맞춘다.
+        if (ModeSession.SelectedMode == 3)
+        {
+            BGMManager.Instance?.Seek(_gm.LoadedFromSave ? _gm.SavedBgmSec : 0.0);
+
+            // 광과민성 경고가 걷힐 때까지는 무음. 아직 곡이 시작된 게 아니다.
+            // 연출이 전부 재생 위치로 계산되므로, 여기서 곡이 돌면 플레이어가 보지도 못한
+            // 도입부가 경고 뒤에서 그냥 지나가 버린다. 재개는 PhotoWarningRoutine이 맡는다.
+            // (Seek이 Play를 부를 수 있으므로 되감기 다음에 멈춰야 한다.)
+            BGMManager.Instance?.Pause();
+        }
+
         // 광고 배너 표시
         AdManager.GetOrCreate().ShowBanner();
 
@@ -347,6 +362,9 @@ public class InGameUI : MonoBehaviour
 
             // 모든 레이아웃이 끝난 뒤에 제자리를 기록해야 한다
             CollectShakeTargets();
+
+            // 경고는 맨 마지막에 세워야 다른 레이어들 위로 올라간다(sibling 순서 = 그리는 순서).
+            BuildPhotoWarning();
         }
 
         RefreshUI();
@@ -355,6 +373,10 @@ public class InGameUI : MonoBehaviour
     void OnDestroy()
     {
         if (_gm != null) _gm.OnStateChanged -= OnGameStateChanged;
+
+        // 광과민성 경고 도중에 씬을 떠나면 재개를 맡은 코루틴이 같이 죽어,
+        // BGM이 멈춘 채로 메뉴까지 따라간다. 멈춘 적 없으면 무시되므로 무조건 불러도 안전하다.
+        BGMManager.Instance?.Resume();
     }
 
     void OnApplicationPause(bool pause)
@@ -1098,6 +1120,107 @@ public class InGameUI : MonoBehaviour
         rt.anchorMax    = Vector2.one;
         rt.offsetMin    = Vector2.zero;
         rt.offsetMax    = Vector2.zero;
+    }
+
+    // ── 광과민성 경고 (디스코 모드 진입 직후) ──────────
+    // 화면 전체를 불투명하게 덮는다. 반투명으로 하면 경고를 읽는 동안 뒤에서
+    // 깜빡이는 연출이 그대로 비친다 — 경고의 뜻이 없어진다.
+    //
+    // 검정 판은 첫 프레임부터 불투명하고, 페이드 인은 그 위의 아이콘·문구에만 건다.
+    // 판까지 같이 흐리게 시작하면 그 시간만큼 그리드·트레이가 먼저 보인다.
+    // (배경은 blackout이 이미 검정으로 만들지만, 그리드와 트레이는 그 대상이 아니다.)
+    const float WARN_FADE_IN  = 0.35f;  // ── 조정 손잡이: 문구가 떠오르는 시간(초) ──
+    const float WARN_HOLD     = 2.0f;   // ── 조정 손잡이: 다 보인 채 머무르는 시간(초) ──
+    const float WARN_FADE_OUT = 0.5f;   // ── 조정 손잡이: 사라지는 시간(초) ──
+
+    void BuildPhotoWarning()
+    {
+        var loc = LocalizationManager.Instance;
+
+        var go = new GameObject("PhotoWarning");
+        go.transform.SetParent(_canvas.transform, false);
+        go.transform.SetAsLastSibling();   // sibling 순서 = 그리는 순서. 맨 위여야 전부 덮는다.
+
+        var backdrop   = go.AddComponent<Image>();
+        backdrop.color = new Color(0.04f, 0.03f, 0.07f, 1f);
+
+        var rt       = go.GetComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+
+        // 아이콘·문구만 담는 자식. 판과 알파를 따로 굴리려고 한 겹 더 둔다.
+        var contentGo = new GameObject("Content");
+        contentGo.transform.SetParent(go.transform, false);
+        var contentRt       = contentGo.AddComponent<RectTransform>();
+        contentRt.anchorMin = Vector2.zero;
+        contentRt.anchorMax = Vector2.one;
+        contentRt.offsetMin = Vector2.zero;
+        contentRt.offsetMax = Vector2.zero;
+        var contentCg   = contentGo.AddComponent<CanvasGroup>();
+        contentCg.alpha = 0f;
+
+        // caution.png는 흰 실루엣 + 투명 배경이라 어두운 backdrop 위에서 그대로 읽힌다.
+        var iconSprite = LoadSpriteFromPath("Sprites/Logo/caution");
+        if (iconSprite != null)
+        {
+            var iconGo = new GameObject("Icon");
+            iconGo.transform.SetParent(contentGo.transform, false);
+            var img            = iconGo.AddComponent<Image>();
+            img.sprite         = iconSprite;
+            img.preserveAspect = true;
+            img.raycastTarget  = false;
+            var irt              = iconGo.GetComponent<RectTransform>();
+            irt.anchorMin        = irt.anchorMax = new Vector2(0.5f, 0.5f);
+            irt.pivot            = new Vector2(0.5f, 0.5f);
+            irt.sizeDelta        = new Vector2(340, 340);
+            irt.anchoredPosition = new Vector2(0, 210);
+        }
+
+        AddText(contentGo.transform, loc.Get("photo_warn_title"), 62, Color.white,
+            new Vector2(0, -60), new Vector2(940, 100));
+        AddText(contentGo.transform, loc.Get("photo_warn_desc"), 38, new Color(0.80f, 0.80f, 0.86f),
+            new Vector2(0, -190), new Vector2(900, 180));
+
+        // 경고가 떠 있는 동안 뒤쪽 보드로 터치가 새지 않게 막는다.
+        // 게임 자체는 이미 시작돼 있어서, 막지 않으면 경고를 읽다가 조각이 놓인다.
+        // alpha는 1로 시작한다 — 첫 프레임부터 화면을 가려야 한다.
+        var cg            = go.AddComponent<CanvasGroup>();
+        cg.alpha          = 1f;
+        cg.blocksRaycasts = true;
+
+        StartCoroutine(PhotoWarningRoutine(cg, contentCg));
+    }
+
+    IEnumerator PhotoWarningRoutine(CanvasGroup panelCg, CanvasGroup contentCg)
+    {
+        // 검정 판은 이미 화면을 덮고 있고, 여기서는 문구만 떠오른다.
+        for (float e = 0f; e < WARN_FADE_IN; e += Time.deltaTime)
+        {
+            contentCg.alpha = e / WARN_FADE_IN;
+            yield return null;
+        }
+        contentCg.alpha = 1f;
+
+        yield return new WaitForSeconds(WARN_HOLD);
+
+        // 사라지는 동안에는 밑을 다시 만질 수 있게 풀어 준다.
+        // 나갈 때는 판째로 걷는다. CanvasGroup은 중첩되면 알파가 곱해지므로
+        // contentCg를 1로 둔 채 판만 내려도 문구가 같이 옅어진다.
+        panelCg.blocksRaycasts = false;
+        for (float e = 0f; e < WARN_FADE_OUT; e += Time.deltaTime)
+        {
+            panelCg.alpha = 1f - e / WARN_FADE_OUT;
+            yield return null;
+        }
+
+        // 사라진 뒤에는 남겨 둘 이유가 없다.
+        Destroy(panelCg.gameObject);
+
+        // 여기가 곡의 실질적인 0초다. 경고가 완전히 걷힌 뒤에 시작해야
+        // 연출 타임라인의 시작과 플레이어가 화면을 보기 시작하는 순간이 맞아떨어진다.
+        BGMManager.Instance?.Resume();
     }
 
     // 동심원 링 (속이 빈 원, 부드러운 경계)
