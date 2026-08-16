@@ -107,6 +107,17 @@ public class InGameUI : MonoBehaviour
     GameObject  _comboPopup;      // 떠 있는 팝업 하나. 값이 바뀌면 이전 것을 치우고 새로 띄운다.
     int         _comboPopupValue; // 그 팝업이 보여 주고 있는 콤보 수
 
+    // ── 디스코 콤보 상태등 ──────────────────────────────────────
+    // 디스코는 콤보를 유지해야 살아남는다. 지금 콤보가 몇인지, 그리고 이번 세트가
+    // 아직 위험한지를 상시로 보여 준다. 남은 조각 수는 트레이가 이미 보여 주므로 여기서 안 센다.
+    // 첫 클리어 전(콤보 0)에는 규칙이 아직 안 걸리므로 아무것도 띄우지 않는다.
+    Text _comboStatusText;
+    static readonly Vector2 COMBO_STATUS_POS  = new Vector2(300, -313);   // 하트 게이지와 같은 높이, 오른쪽
+    static readonly Color   COMBO_STATUS_SAFE = new Color(1f, 1f, 1f, 0.92f);
+    static readonly Color   COMBO_STATUS_RISK = new Color(1f, 0.28f, 0.34f);
+    const float COMBO_RISK_PULSE      = 4.5f;   // ── 조정 손잡이: 경고 깜빡임 속도 ──
+    const float COMBO_RISK_PULSE_LAST = 9f;     // 마지막 조각 하나가 남았을 때의 속도
+
     // ── 공통 스프라이트 캐시 ────────────────────────────────────
     Sprite _spr110;   // 110×110 r=30  (그리드 셀용)
     Sprite _spr200;   // 200×100 r=36  (버튼용)
@@ -633,7 +644,64 @@ public class InGameUI : MonoBehaviour
                 hRt.sizeDelta        = new Vector2(72, 72);
                 _discoHearts[i]      = t;
             }
+
+            // 콤보 상태등 — 하트와 같은 높이의 오른쪽 자리. 하트(무지개 진행도)와 역할이
+            // 다르므로 섞지 않고 나란히 둔다.
+            var csGo = new GameObject("ComboStatus");
+            csGo.transform.SetParent(_canvas.transform, false);
+            _comboStatusText               = csGo.AddComponent<Text>();
+            _comboStatusText.font          = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
+            _comboStatusText.fontSize      = 52;
+            _comboStatusText.fontStyle     = FontStyle.BoldAndItalic;
+            _comboStatusText.alignment     = TextAnchor.MiddleCenter;
+            _comboStatusText.raycastTarget = false;
+            _comboStatusText.text          = "";
+
+            var csShadow            = csGo.AddComponent<Shadow>();
+            csShadow.effectColor    = new Color(0f, 0f, 0f, 0.55f);
+            csShadow.effectDistance = new Vector2(3f, -3f);
+
+            var csRt              = csGo.GetComponent<RectTransform>();
+            csRt.anchorMin        = new Vector2(0.5f, 1f);
+            csRt.anchorMax        = new Vector2(0.5f, 1f);
+            csRt.pivot            = new Vector2(0.5f, 1f);
+            csRt.anchoredPosition = COMBO_STATUS_POS;
+            csRt.sizeDelta        = new Vector2(240, 70);
         }
+    }
+
+    // 콤보 상태등 갱신. 매 프레임 불린다(경고가 깜빡여야 해서).
+    //   · 콤보 0      아무것도 안 띄운다 — 첫 클리어 전이라 규칙이 아직 안 걸린다
+    //   · 이번 세트 클리어함  흰 글자로 가만히
+    //   · 아직 못 지움        빨갛게 깜빡. 마지막 조각 하나가 남으면 두 배로 빨라진다
+    void UpdateComboStatus()
+    {
+        if (_comboStatusText == null || _gm == null) return;
+
+        int combo = _gm.Combo;
+        if (combo <= 0)
+        {
+            if (_comboStatusText.text.Length > 0) _comboStatusText.text = "";
+            return;
+        }
+
+        string want = combo >= COMBO_MAX ? "MAX!" : $"x{combo}";
+        if (_comboStatusText.text != want) _comboStatusText.text = want;
+
+        if (_gm.ClearedThisSet)
+        {
+            _comboStatusText.color = COMBO_STATUS_SAFE;
+            return;
+        }
+
+        int left = 0;
+        for (int i = 0; i < 3; i++)
+            if (!_gm.CurrentPieces[i].placed) left++;
+
+        float speed = left <= 1 ? COMBO_RISK_PULSE_LAST : COMBO_RISK_PULSE;
+        float a     = 0.45f + 0.55f * (0.5f + 0.5f * Mathf.Sin(Time.time * speed));
+        _comboStatusText.color = new Color(
+            COMBO_STATUS_RISK.r, COMBO_STATUS_RISK.g, COMBO_STATUS_RISK.b, a);
     }
 
     // 하트 게이지 갱신: 채워진 하트는 분홍, 빈 하트는 흐릿하게
@@ -3270,6 +3338,7 @@ public class InGameUI : MonoBehaviour
         if (ModeSession.SelectedMode == 3)
         {
             UpdateDiscoVisuals();
+            UpdateComboStatus();   // 경고가 깜빡여야 해서 매 프레임
 #if UNITY_EDITOR
             // 에디터 전용 구간 이동 단축키
             //   F8  터널 직후 반짝임 구간
@@ -3367,7 +3436,8 @@ public class InGameUI : MonoBehaviour
 
         bool iceSlideWillRun = ModeSession.SelectedMode == 1 &&
             (_gm.LastClearedRows.Count > 0 || _gm.LastClearedCols.Count > 0);
-        if (!iceSlideWillRun && !_gm.HasAnyValidMove())
+        // ComboFailed는 디스코 전용 — 세트를 통째로 못 지우면 자리가 남았어도 끝난다.
+        if (!iceSlideWillRun && (_gm.ComboFailed || !_gm.HasAnyValidMove()))
             ShowGameOver();
     }
 

@@ -62,6 +62,15 @@ public class GameManager : MonoBehaviour
     /// 넘겼을 때만 0으로 돌아간다. 1은 그냥 한 번 지운 것이고, 2부터가 "연속"이다.</summary>
     public int Combo => _combo;
 
+    /// <summary>이번 세트에서 이미 줄을 지웠는지. UI가 디스코 콤보 상태등에 쓴다.</summary>
+    public bool ClearedThisSet => _clearedThisSet;
+
+    /// <summary>디스코 모드에서 콤보를 놓쳐 판이 끝났는지.
+    /// 이 모드는 "리듬을 끊지 마라"가 규칙이라, 한 세트를 통째로 못 지우면 게임오버다.
+    /// 단 첫 클리어 전에는 봐준다 — 빈 판에서 조각 셋으로 8칸 줄을 맞추는 건 운이라,
+    /// 보호가 없으면 시작하자마자 죽는 판이 자주 나온다. 무지개 블럭도 아직 없는 시점이다.</summary>
+    public bool ComboFailed { get; private set; }
+
     /// <summary>줄을 지울 때마다 발행. 인자는 갱신된 콤보 수.
     /// UI가 이걸 받아 콤보 문구를 띄운다 — 문구는 클리어 시점에 떠야 한다.</summary>
     public System.Action<int> OnComboCleared;
@@ -93,7 +102,14 @@ public class GameManager : MonoBehaviour
     /// 흘려보냈으면 여기서 끊긴다. 콤보를 올리는 건 이 함수의 일이 아니다.</summary>
     void CloseSet()
     {
-        if (!_clearedThisSet) _combo = 0;
+        if (!_clearedThisSet)
+        {
+            // _combo > 0 = 이번 판에서 이미 한 번은 지웠다는 뜻이다. 콤보는 클리어로만 오르고
+            // 여기서만 0으로 내려가는데, 디스코에서는 그 순간이 곧 게임오버라 다시 0에서
+            // 출발할 일이 없다. 그래서 이 조건 하나가 "첫 클리어를 했는가"와 같다.
+            if (ModeSession.SelectedMode == 3 && _combo > 0) ComboFailed = true;
+            _combo = 0;
+        }
         _clearedThisSet = false;
     }
 
@@ -532,6 +548,9 @@ public class GameManager : MonoBehaviour
 
         _combo = 0;
         _clearedThisSet = false;
+        // 부활은 판이 이어지는 것이므로 실패 표시를 걷는다. 콤보가 0으로 돌아가면서
+        // 첫 클리어 전 유예도 다시 붙는다 — 하단 3행만 비워 준 상태라 그게 맞다.
+        ComboFailed = false;
         GenerateNewPieces();
         SaveGame();
         OnStateChanged?.Invoke();
@@ -544,6 +563,7 @@ public class GameManager : MonoBehaviour
         Score              = 0;
         _combo             = 0;
         _clearedThisSet    = false;
+        ComboFailed        = false;
         ToggleCurrentColor = 0;
         SpecialGauge       = 0;
         DiscoLineGauge     = 0;
