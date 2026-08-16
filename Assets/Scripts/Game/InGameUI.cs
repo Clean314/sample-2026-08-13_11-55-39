@@ -23,6 +23,7 @@ public class InGameUI : MonoBehaviour
     Image[,]    _blockOverlays    = new Image[8, 8];  // 블록 스프라이트 레이어 (비활성 반투명 처리용)
     Image[]     _gaugeCircles     = new Image[2];     // 스페셜 블럭 게이지 표시 (토글 모드)
     RectTransform _gridRt;
+    RectTransform _blockLayerRt;   // 놓인 블록만 담는 그리드 자식. 빗방울을 이 바로 아래에 끼운다.
     RectTransform _trayRt;
     RectTransform _heartRootRt;
 
@@ -1450,13 +1451,22 @@ public class InGameUI : MonoBehaviour
         _gridRt.sizeDelta     = new Vector2(960, 960);
         _gridRt.anchoredPosition = new Vector2(0, 80);  // 중앙보다 약간 위
 
+        // 빈 셀과 블록을 서로 다른 컨테이너로 나눈다. 원래는 블록이 셀의 자식이라 둘이
+        // 한 덩어리로 붙어 다녔는데, 그러면 그 사이에 아무것도 끼울 수 없다.
+        // 디스코 빗방울이 "빈 셀 위 · 놓인 블록 아래"로 흐르려면 이 틈이 필요하다(BuildRainLayer).
+        var cellLayerRt  = MakeGridLayer(go.transform, "CellLayer");
+        var blockLayerRt = MakeGridLayer(go.transform, "BlockLayer");
+        _blockLayerRt    = blockLayerRt;
+
         // 8×8 셀
         for (int r = 0; r < 8; r++)
         {
             for (int c = 0; c < 8; c++)
             {
+                var cellPos = new Vector2(-420 + c * 120, 420 - r * 120);
+
                 var cellGo = new GameObject($"Cell_{r}_{c}");
-                cellGo.transform.SetParent(go.transform, false);
+                cellGo.transform.SetParent(cellLayerRt, false);
 
                 var img   = cellGo.AddComponent<Image>();
                 img.sprite          = _spr110;
@@ -1473,28 +1483,42 @@ public class InGameUI : MonoBehaviour
                 }
                 _cellImages[r, c]   = img;
 
-                // 블록 오버레이: 빈 셀 배경 위에 블록 이미지를 따로 렌더링
+                // 블록 오버레이: 빈 셀 배경 위에 블록 이미지를 따로 렌더링.
+                // 셀의 자식이 아니라 BlockLayer 밑에 나란히 두고 좌표를 직접 준다.
                 var blockGo          = new GameObject($"Block_{r}_{c}");
-                blockGo.transform.SetParent(cellGo.transform, false);
+                blockGo.transform.SetParent(blockLayerRt, false);
                 var blockImg         = blockGo.AddComponent<Image>();
                 blockImg.color       = Color.clear;
                 blockImg.raycastTarget = false;
                 _blockOverlays[r, c] = blockImg;
                 var blockRt          = blockGo.GetComponent<RectTransform>();
-                blockRt.anchorMin    = Vector2.zero;
-                blockRt.anchorMax    = Vector2.one;
+                blockRt.anchorMin    = new Vector2(0.5f, 0.5f);
+                blockRt.anchorMax    = new Vector2(0.5f, 0.5f);
                 blockRt.pivot        = new Vector2(0.5f, 0.5f);
-                blockRt.sizeDelta    = new Vector2(10, 10);
-                blockRt.anchoredPosition = Vector2.zero;
+                // 셀(110)보다 10 큰 120. 예전에 셀의 자식으로 스트레치 + sizeDelta(10,10)이던 것과 같다.
+                blockRt.sizeDelta        = new Vector2(120, 120);
+                blockRt.anchoredPosition = cellPos;
 
                 var rt = cellGo.GetComponent<RectTransform>();
                 rt.anchorMin        = new Vector2(0.5f, 0.5f);
                 rt.anchorMax        = new Vector2(0.5f, 0.5f);
                 rt.pivot            = new Vector2(0.5f, 0.5f);
-                rt.anchoredPosition = new Vector2(-420 + c * 120, 420 - r * 120);
+                rt.anchoredPosition = cellPos;
                 rt.sizeDelta        = new Vector2(110, 110);
             }
         }
+    }
+
+    // 그리드와 같은 크기·같은 원점을 갖는 빈 컨테이너. 셀과 블록을 나눠 담는다.
+    RectTransform MakeGridLayer(Transform parent, string name)
+    {
+        var go = new GameObject(name);
+        go.transform.SetParent(parent, false);
+        var rt       = go.AddComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = rt.offsetMax = Vector2.zero;
+        return rt;
     }
 
     void BuildPieceTray()
