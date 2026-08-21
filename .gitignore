@@ -105,3 +105,9 @@ InitTestScene*.unity*
 
 # Auto-generated scenes by play mode tests
 /[Aa]ssets/[Ii]nit[Tt]est[Ss]cene*.unity*
+
+# Claude Code 작업용 워크트리 (프로젝트 사본이라 커밋 대상 아님)
+/.claude/worktrees/
+
+# Windows Git Bash 에서 /dev/null 리다이렉션이 실수로 만들어 내는 껍데기
+/dev/

@@ -20,20 +20,24 @@ public class AdManager : MonoBehaviour
     const string APP_ID      = "ca-app-pub-3940256099942544~3347511713"; // 테스트 앱 ID
     const string BANNER_ID   = "ca-app-pub-3940256099942544/9214589741"; // 적응형 배너 테스트 ID
     const string REWARDED_ID = "ca-app-pub-3940256099942544/5224354917";
+    const string INTER_ID    = "ca-app-pub-3940256099942544/1033173712"; // 전면 테스트 ID
 #elif UNITY_IOS
     const string APP_ID      = "ca-app-pub-3940256099942544~1458002511";
     const string BANNER_ID   = "ca-app-pub-3940256099942544/2435281174"; // 적응형 배너 테스트 ID
     const string REWARDED_ID = "ca-app-pub-3940256099942544/1712485313";
+    const string INTER_ID    = "ca-app-pub-3940256099942544/4411468910"; // 전면 테스트 ID
 #else
     const string APP_ID      = "";
     const string BANNER_ID   = "";
     const string REWARDED_ID = "";
+    const string INTER_ID    = "";
 #endif
 
 #if UNITY_ANDROID || UNITY_IOS
-    BannerView  _banner;
-    RewardedAd  _rewardedAd;
-    bool        _rewardedReady;
+    BannerView      _banner;
+    RewardedAd      _rewardedAd;
+    bool            _rewardedReady;
+    InterstitialAd  _interstitial;
 #endif
 
     // ── 생성 ─────────────────────────────────────────────────────
@@ -55,6 +59,7 @@ public class AdManager : MonoBehaviour
         {
             Debug.Log("[AdManager] MobileAds initialized.");
             LoadRewardedAd();
+            LoadInterstitial();
         });
 #endif
     }
@@ -66,6 +71,8 @@ public class AdManager : MonoBehaviour
     /// <summary>하단에 배너를 표시합니다. 이미 표시 중이면 무시합니다.</summary>
     public void ShowBanner()
     {
+        // 광고를 제거한 사람에게는 부르는 쪽을 고치지 않아도 안 뜨게 여기서 막는다.
+        if (RemoveAds.Owned) return;
 #if UNITY_ANDROID || UNITY_IOS
         if (_banner != null) { _banner.Show(); return; }
 
@@ -167,11 +174,85 @@ public class AdManager : MonoBehaviour
 #endif
     }
 
+    // ═══════════════════════════════════════════════════════════
+    // 전면 광고
+    // ═══════════════════════════════════════════════════════════
+    // 건너뛰기 버튼이 몇 초 뒤에 뜨는지는 앱이 정하지 못한다 — 광고 크리에이티브와
+    // 네트워크가 정하고, 영상 소재는 대개 5초쯤 뒤에 닫기가 나타난다.
+    // 앱에서 할 수 있는 건 "언제 띄울지"까지다.
+
+#if UNITY_ANDROID || UNITY_IOS
+    void LoadInterstitial()
+    {
+        if (RemoveAds.Owned) return;
+
+        InterstitialAd.Load(INTER_ID, new AdRequest(), (ad, err) =>
+        {
+            if (err != null)
+            {
+                Debug.LogWarning($"[AdManager] Interstitial load failed: {err.GetMessage()}");
+                return;
+            }
+            _interstitial = ad;
+            Debug.Log("[AdManager] Interstitial loaded.");
+        });
+    }
+#endif
+
+    public bool IsInterstitialReady
+    {
+        get
+        {
+#if UNITY_ANDROID || UNITY_IOS
+            return !RemoveAds.Owned && _interstitial != null && _interstitial.CanShowAd();
+#else
+            return false;
+#endif
+        }
+    }
+
+    /// <summary>
+    /// 전면 광고를 띄우고, 닫히면 onClosed를 부른다.
+    /// 광고를 못 띄우는 상황(미로드·구매자·에디터)에서도 onClosed는 반드시 불린다 —
+    /// 부르는 쪽이 "광고가 끝나면 이어서 할 일"을 여기에 맡기기 때문에, 안 부르면 게임이 멎는다.
+    /// </summary>
+    public void ShowInterstitial(Action onClosed)
+    {
+#if UNITY_ANDROID || UNITY_IOS
+        if (!IsInterstitialReady)
+        {
+            Debug.LogWarning("[AdManager] Interstitial not ready.");
+            onClosed?.Invoke();
+            LoadInterstitial();   // 다음 기회를 위해 다시 받아 둔다
+            return;
+        }
+
+        bool done = false;
+        void Finish()
+        {
+            if (done) return;   // Closed와 Failed가 겹쳐 들어와도 한 번만
+            done = true;
+            _interstitial = null;
+            LoadInterstitial();
+            onClosed?.Invoke();
+        }
+
+        _interstitial.OnAdFullScreenContentClosed += Finish;
+        _interstitial.OnAdFullScreenContentFailed += _ => Finish();
+        _interstitial.Show();
+#else
+        // 에디터 / 미지원 플랫폼: 광고 없이 곧바로 이어간다 (보상형과 같은 규칙)
+        Debug.Log("[AdManager] Editor: interstitial skipped.");
+        onClosed?.Invoke();
+#endif
+    }
+
     void OnDestroy()
     {
 #if UNITY_ANDROID || UNITY_IOS
         _banner?.Destroy();
         _rewardedAd?.Destroy();
+        _interstitial?.Destroy();
 #endif
     }
 }

@@ -22,10 +22,9 @@ public static class ModeConfig
         new Config { bgmClip = "Audio/BGM/ice_mode_bgm", puzzleSprite = "Sprites/Puzzles/ice",       sfxSelect = "Audio/SFX/ice_선택", sfxDecide = "Audio/SFX/ice_결정", sfxClear = "Audio/SFX/ice",    excludedShapes = new int[]{9,10},
                      shapeWeightOverrides = new int[27] { 8,8,8, 0,0, 0,0,0,0, 0,0, 0,0,0,0, 0, 0,0,0,0, 0,0,0,0, 0, 0,0 }},  // 1: 아이스 (대각 제외, 소형 조각 가중치↑)
         new Config { bgmClip = "Audio/BGM/toggle", puzzleSprite = null,        colorSpriteNames = new string[]{ "black", null, null, null, null, null },
-                     // 토글 모드는 줄 클리어 전용 효과음을 쓰지 않는다(의도된 null).
-                     // 클리어와 동시에 화이트↔블랙이 뒤집히면서 toggle_switch("딸깍")가 울려
-                     // 클리어 피드백을 이미 채워 준다. 여기에 클리어음을 겹치면 소리가 지저분해진다.
-                     sfxSelect = "Audio/SFX/toggle_선택", sfxDecide = "Audio/SFX/toggle_결정", sfxClear = null, excludedShapes = null,
+                     // 색 전환은 3번에 한 번뿐이라(TOGGLE_CLEARS_PER_SWITCH) toggle_switch만으로는
+                     // 나머지 두 번의 클리어가 소리 없이 지나간다. 그래서 클리어음을 따로 둔다.
+                     sfxSelect = "Audio/SFX/toggle_선택", sfxDecide = "Audio/SFX/toggle_결정", sfxClear = "Audio/SFX/toggle", excludedShapes = null,
                      shapeWeightOverrides = new int[27] {
                          12, 12, 10,  4,  1,   // 0:1칸  1:가로2  2:가로3  3:가로4  4:가로5
                          12, 10,  4,  1,        // 5:세로2  6:세로3  7:세로4  8:세로5

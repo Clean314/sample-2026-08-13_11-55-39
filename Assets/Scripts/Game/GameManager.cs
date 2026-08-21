@@ -19,6 +19,11 @@ public class GameManager : MonoBehaviour
     // (UI의 하트 게이지 개수도 이 값을 따라간다)
     public const int DISCO_LINES_PER_RAINBOW = 3;
 
+    // 토글 모드: 이 횟수만큼 클리어해야 화이트↔블랙이 한 번 바뀐다.
+    // 색 전환과 스페셜 블럭 생성이 같은 시점에 일어난다.
+    // (UI의 게이지 원 개수도 이 값을 따라간다)
+    public const int TOGGLE_CLEARS_PER_SWITCH = 3;
+
     public int[,] Board { get; private set; }   // 0=빈칸, 1~6=색상 인덱스+1, 7=스페셜 블럭, 8=무지개 블럭
     public int Score     { get; private set; }
     public int HighScore { get; private set; }
@@ -26,7 +31,7 @@ public class GameManager : MonoBehaviour
     // 토글 모드: 현재 활성 색상 (0 = 화이트 모드, 1 = 블랙 모드)
     public int ToggleCurrentColor { get; private set; } = 0;
 
-    // 토글 모드: 스페셜 블럭 게이지 (0~1, 2가 되면 스페셜 블럭 생성 후 리셋)
+    // 토글 모드: 색 전환 게이지 (TOGGLE_CLEARS_PER_SWITCH가 되면 색 전환 + 스페셜 블럭 생성 후 리셋)
     public int SpecialGauge { get; private set; } = 0;
 
     // 디스코 모드: 누적 클리어 줄 수 (DISCO_LINES_PER_RAINBOW마다 무지개 블럭 생성 후 차감)
@@ -56,7 +61,8 @@ public class GameManager : MonoBehaviour
     //   · 오르는 건 클리어마다.  한 세트 안에서 두 번 지우면 콤보도 두 번 오른다.
     //   · 끊기는 건 세트마다.    조각 세 개를 다 쓰도록 한 번도 못 지워야 0으로 돌아간다.
     // 즉 줄이 안 난 배치 하나로는 안 끊긴다. 세트를 통째로 흘려보내야 끊긴다.
-    bool _clearedThisSet;   // 이번 세트에서 한 번이라도 지웠는지
+    bool _clearedThisSet;    // 이번 세트에서 한 번이라도 지웠는지
+    bool _comboArmed;        // 첫 클리어를 한 뒤로 콤보 유지 규칙이 살아 있는지
 
     /// <summary>연속 클리어 수. 클리어할 때마다 오르고, 조각 한 세트를 아무것도 못 지우고
     /// 넘겼을 때만 0으로 돌아간다. 1은 그냥 한 번 지운 것이고, 2부터가 "연속"이다.</summary>
@@ -67,8 +73,8 @@ public class GameManager : MonoBehaviour
 
     /// <summary>디스코 모드에서 콤보를 놓쳐 판이 끝났는지.
     /// 이 모드는 "리듬을 끊지 마라"가 규칙이라, 한 세트를 통째로 못 지우면 게임오버다.
-    /// 단 첫 클리어 전에는 봐준다 — 빈 판에서 조각 셋으로 8칸 줄을 맞추는 건 운이라,
-    /// 보호가 없으면 시작하자마자 죽는 판이 자주 나온다. 무지개 블럭도 아직 없는 시점이다.</summary>
+    /// 봐주는 경우는 하나뿐이다 — 첫 클리어 전. 빈 판에서 조각 셋으로 8칸 줄을 맞추는 건
+    /// 운이고 무지개도 아직 없다. CloseSet 참고.</summary>
     public bool ComboFailed { get; private set; }
 
     /// <summary>줄을 지울 때마다 발행. 인자는 갱신된 콤보 수.
@@ -102,15 +108,35 @@ public class GameManager : MonoBehaviour
     /// 흘려보냈으면 여기서 끊긴다. 콤보를 올리는 건 이 함수의 일이 아니다.</summary>
     void CloseSet()
     {
-        if (!_clearedThisSet)
+        if (_clearedThisSet)
         {
-            // _combo > 0 = 이번 판에서 이미 한 번은 지웠다는 뜻이다. 콤보는 클리어로만 오르고
-            // 여기서만 0으로 내려가는데, 디스코에서는 그 순간이 곧 게임오버라 다시 0에서
-            // 출발할 일이 없다. 그래서 이 조건 하나가 "첫 클리어를 했는가"와 같다.
-            if (ModeSession.SelectedMode == 3 && _combo > 0) ComboFailed = true;
+            _comboArmed = true;   // 첫 클리어를 해냈으므로 이제부터 규칙이 걸린다
+        }
+        else
+        {
+            // 무지개 블럭은 "쓰면" 이미 여기까지 오지 않는다. ActivateRainbowBlock이
+            // AddLineScore를 거치므로 그 세트는 지운 세트가 되고, 콤보도 한 칸 오른다.
+            // 줄을 못 지운 세트를 무지개로 메우는 예외는 그 경로 하나로 충분하다.
+            //
+            // 반대로 "쥐고만 있는 것"으로 봐주면 안 된다. 무지개는 3줄마다 계속 나오므로
+            // 하나만 안 쓰고 남겨 두면 어떤 세트를 흘려보내도 끝나지 않는다 —
+            // 콤보가 영영 안 끊기고 판이 죽지 않는다.
+            if (ModeSession.IsDisco && _comboArmed)
+                ComboFailed = true;
+
             _combo = 0;
         }
+
         _clearedThisSet = false;
+    }
+
+    /// <summary>보드에 아직 쓰지 않은 무지개 블럭이 있는지.</summary>
+    bool HasRainbowBlock()
+    {
+        for (int r = 0; r < SIZE; r++)
+            for (int c = 0; c < SIZE; c++)
+                if (Board[r, c] == RAINBOW_BLOCK_VAL) return true;
+        return false;
     }
 
     /// <summary>이어하기로 시작했는지. false면 이번이 새 판이다.
@@ -172,29 +198,11 @@ public class GameManager : MonoBehaviour
         {
             AddLineScore(lines);
 
-            // 토글 모드: 클리어 시 색상 토글 + 미배치 조각 색상 갱신 + 게이지 증가
-            if (ModeSession.SelectedMode == 2)
-            {
-                ToggleCurrentColor = 1 - ToggleCurrentColor;
-                int newColorIdx = ToggleCurrentColor == 0 ? TOGGLE_WHITE_IDX : TOGGLE_BLACK_IDX;
-                for (int i = 0; i < 3; i++)
-                    if (!CurrentPieces[i].placed)
-                    {
-                        var p = CurrentPieces[i];
-                        p.colorIndex = newColorIdx;
-                        CurrentPieces[i] = p;
-                    }
-
-                SpecialGauge++;
-                if (SpecialGauge >= 2)
-                {
-                    SpawnSpecialBlock();
-                    SpecialGauge = 0;
-                }
-            }
+            // 토글 모드: 게이지를 올리고, 다 차면 색 전환 + 스페셜 블럭
+            if (ModeSession.IsToggle) AdvanceToggleGauge();
 
             // 디스코 모드: 클리어된 줄 수를 누적해 DISCO_LINES_PER_RAINBOW줄마다 무지개 블럭을 하나 놓는다
-            if (ModeSession.SelectedMode == 3)
+            if (ModeSession.IsDisco)
             {
                 DiscoLineGauge += lines;
                 AwardRainbowBlocks();
@@ -215,7 +223,7 @@ public class GameManager : MonoBehaviour
         if (Score > HighScore)
         {
             HighScore = Score;
-            PlayerPrefs.SetInt(_mk + "HighScore", HighScore);
+            SaveHighScore();
         }
 
         SaveGame();
@@ -229,7 +237,7 @@ public class GameManager : MonoBehaviour
         LastClearedRows.Clear();
         LastClearedCols.Clear();
 
-        bool toggleMode = ModeSession.SelectedMode == 2;
+        bool toggleMode = ModeSession.IsToggle;
         int  activeVal  = toggleMode
             ? (ToggleCurrentColor == 0 ? TOGGLE_WHITE_IDX : TOGGLE_BLACK_IDX) + 1
             : -1;
@@ -237,13 +245,17 @@ public class GameManager : MonoBehaviour
         var rows = new List<int>();
         var cols = new List<int>();
 
+        // 스페셜 블럭은 줄을 완성시켜 주지 않는다. 들고 있는 동안 가로세로 두 줄을 막는 게
+        // 아껴 두는 값이고, 그 대가가 있어야 "언제 쓸까"가 질문이 된다.
+        // 덕분에 줄 클리어에 휩쓸려 사라질 일도 없다 — 낀 줄은 애초에 지워지지 않으니까.
+
         for (int r = 0; r < SIZE; r++)
         {
             bool clearable = true;
             for (int c = 0; c < SIZE; c++)
             {
                 int v = Board[r, c];
-                if (toggleMode ? (v != activeVal && v != SPECIAL_BLOCK_VAL) : v == 0) { clearable = false; break; }
+                if (toggleMode ? v != activeVal : v == 0) { clearable = false; break; }
             }
             if (clearable) rows.Add(r);
         }
@@ -253,7 +265,7 @@ public class GameManager : MonoBehaviour
             for (int r = 0; r < SIZE; r++)
             {
                 int v = Board[r, c];
-                if (toggleMode ? (v != activeVal && v != SPECIAL_BLOCK_VAL) : v == 0) { clearable = false; break; }
+                if (toggleMode ? v != activeVal : v == 0) { clearable = false; break; }
             }
             if (clearable) cols.Add(c);
         }
@@ -267,6 +279,31 @@ public class GameManager : MonoBehaviour
         LastClearedCols.AddRange(cols);
 
         return rows.Count + cols.Count;
+    }
+
+    // ── 토글 모드 게이지 ────────────────────────────────────────
+    /// <summary>
+    /// 클리어 한 번을 게이지에 적는다. TOGGLE_CLEARS_PER_SWITCH번이 모이면 그때
+    /// 화이트↔블랙을 뒤집고(미배치 조각 색도 같이 갱신) 스페셜 블럭을 하나 놓는다.
+    /// 색 전환과 스페셜 블럭이 같은 시점에 일어나야 판이 바뀌는 순간이 한 박자로 읽힌다.
+    /// </summary>
+    void AdvanceToggleGauge()
+    {
+        SpecialGauge++;
+        if (SpecialGauge < TOGGLE_CLEARS_PER_SWITCH) return;
+        SpecialGauge = 0;
+
+        ToggleCurrentColor = 1 - ToggleCurrentColor;
+        int newColorIdx = ToggleCurrentColor == 0 ? TOGGLE_WHITE_IDX : TOGGLE_BLACK_IDX;
+        for (int i = 0; i < 3; i++)
+            if (!CurrentPieces[i].placed)
+            {
+                var p = CurrentPieces[i];
+                p.colorIndex = newColorIdx;
+                CurrentPieces[i] = p;
+            }
+
+        SpawnSpecialBlock();
     }
 
     // ── 스페셜 블럭 생성 ────────────────────────────────────────
@@ -359,7 +396,7 @@ public class GameManager : MonoBehaviour
         if (Score > HighScore)
         {
             HighScore = Score;
-            PlayerPrefs.SetInt(_mk + "HighScore", HighScore);
+            SaveHighScore();
         }
 
         SaveGame();
@@ -367,51 +404,68 @@ public class GameManager : MonoBehaviour
         return true;
     }
 
-    // ── 스페셜 블럭 사용: 색상 일괄 변환 ───────────────────────
-    public void ApplyColorSwap(bool blackToWhite)
+    // ── 스페셜 블럭 사용: 한 줄 색상 통일 ───────────────────────
+    /// <summary>보드에 놓인 스페셜 블럭 위치를 찾는다. 없으면 false.</summary>
+    public bool FindSpecialBlock(out int row, out int col)
     {
-        int from = blackToWhite ? TOGGLE_BLACK_IDX + 1 : TOGGLE_WHITE_IDX + 1;
-        int to   = blackToWhite ? TOGGLE_WHITE_IDX + 1 : TOGGLE_BLACK_IDX + 1;
-
         for (int r = 0; r < SIZE; r++)
             for (int c = 0; c < SIZE; c++)
-            {
-                if      (Board[r, c] == from)              Board[r, c] = to;
-                else if (Board[r, c] == SPECIAL_BLOCK_VAL) Board[r, c] = 0;
-            }
+                if (Board[r, c] == SPECIAL_BLOCK_VAL) { row = r; col = c; return true; }
+        row = col = -1;
+        return false;
+    }
 
-        // 색 변환 후 가득 찬 줄 클리어 체크
+    /// <summary>스페셜 블럭이 보드에 있는지.</summary>
+    public bool HasSpecialBlock => FindSpecialBlock(out _, out _);
+
+    /// <summary>
+    /// 스페셜 블럭을 써서 고른 한 줄(가로 또는 세로)의 블럭을 전부 활성 색으로 맞춘다.
+    /// 판 전체를 뒤집던 예전 방식은 전환이 방금 죽인 것을 통째로 되살려서, 이 모드의
+    /// 유일한 위협인 색 전환을 매번 없던 일로 만들었다. 한 줄로 묶으면 보상이 정해져 있어
+    /// 전환은 그대로 아프고, 대신 "어느 줄을 풀 것인가"라는 판을 읽는 결정이 남는다.
+    ///
+    /// 빈 칸은 채우지 않는다. 채워 주면 "무조건 한 줄 지우기"가 되어 색을 맞춘다는 규칙이
+    /// 사라진다 — 꽉 찼는데 색만 어긋난 줄을 찾아내는 게 이 도구의 값이다.
+    /// </summary>
+    public bool ApplyLineSwap(bool horizontal, int index)
+    {
+        if (!ModeSession.IsToggle)  return false;
+        if (index < 0 || index >= SIZE)     return false;
+        if (!FindSpecialBlock(out int sr, out int sc)) return false;
+
+        int activeVal = (ToggleCurrentColor == 0 ? TOGGLE_WHITE_IDX : TOGGLE_BLACK_IDX) + 1;
+
+        // 스페셜 블럭은 쓰는 순간 사라진다. 다만 고른 줄 위에 있었다면 그 칸을 활성 색으로
+        // 메운다 — 빈칸으로 만들면 정작 자기가 낀 줄을 고를 때 구멍이 나서 안 지워진다.
+        bool onLine = horizontal ? sr == index : sc == index;
+        Board[sr, sc] = onLine ? activeVal : 0;
+
+        for (int i = 0; i < SIZE; i++)
+        {
+            int r = horizontal ? index : i;
+            int c = horizontal ? i : index;
+            if (Board[r, c] != 0) Board[r, c] = activeVal;
+        }
+
+        // 줄 하나만 건드리므로 되먹임이 없다. 여기서 난 클리어도 평범한 클리어로 쳐서
+        // 점수·콤보·전환 게이지에 그대로 넣는다 — "스페셜로 한 줄 지워 전환을 앞당긴다"가
+        // 부가 전략이 된다.
         int lines = ClearFullLines();
         if (lines > 0)
         {
             AddLineScore(lines);
-
-            ToggleCurrentColor = 1 - ToggleCurrentColor;
-            int newColorIdx = ToggleCurrentColor == 0 ? TOGGLE_WHITE_IDX : TOGGLE_BLACK_IDX;
-            for (int i = 0; i < 3; i++)
-                if (!CurrentPieces[i].placed)
-                {
-                    var p = CurrentPieces[i];
-                    p.colorIndex = newColorIdx;
-                    CurrentPieces[i] = p;
-                }
-
-            SpecialGauge++;
-            if (SpecialGauge >= 2)
-            {
-                SpawnSpecialBlock();
-                SpecialGauge = 0;
-            }
+            AdvanceToggleGauge();
 
             if (Score > HighScore)
             {
                 HighScore = Score;
-                PlayerPrefs.SetInt(_mk + "HighScore", HighScore);
+                SaveHighScore();
             }
         }
 
         SaveGame();
         OnStateChanged?.Invoke();
+        return true;
     }
 
     // ── 새 조각 3개 생성 ────────────────────────────────────────
@@ -420,7 +474,7 @@ public class GameManager : MonoBehaviour
         var excluded        = ModeConfig.Current.excludedShapes;
         var weightOverrides = ModeConfig.Current.shapeWeightOverrides;
 
-        bool toggleMode    = ModeSession.SelectedMode == 2;
+        bool toggleMode    = ModeSession.IsToggle;
         int  toggleColorIdx = toggleMode
             ? (ToggleCurrentColor == 0 ? TOGGLE_WHITE_IDX : TOGGLE_BLACK_IDX)
             : -1;
@@ -499,7 +553,7 @@ public class GameManager : MonoBehaviour
             if (Score > HighScore)
             {
                 HighScore = Score;
-                PlayerPrefs.SetInt(_mk + "HighScore", HighScore);
+                SaveHighScore();
             }
         }
         return lines;
@@ -509,20 +563,16 @@ public class GameManager : MonoBehaviour
     public bool HasAnyValidMove()
     {
         // 토글 모드: 스페셜 블럭이 남아있으면 색상 변환으로 판도가 바뀔 수 있으므로 게임오버 아님
-        if (ModeSession.SelectedMode == 2)
+        if (ModeSession.IsToggle)
         {
             for (int r = 0; r < SIZE; r++)
                 for (int c = 0; c < SIZE; c++)
                     if (Board[r, c] == SPECIAL_BLOCK_VAL) return true;
         }
 
-        // 디스코 모드: 무지개 블럭을 탭하면 가로세로가 비므로 아직 수가 남아있다
-        if (ModeSession.SelectedMode == 3)
-        {
-            for (int r = 0; r < SIZE; r++)
-                for (int c = 0; c < SIZE; c++)
-                    if (Board[r, c] == RAINBOW_BLOCK_VAL) return true;
-        }
+        // 디스코 모드: 무지개 블럭을 탭하면 가로세로가 비므로 아직 수가 남아있다.
+        // 이건 콤보와 다른 이야기다 — 놓을 자리가 없는 것과 줄을 못 지운 것은 별개의 끝이다.
+        if (ModeSession.IsDisco && HasRainbowBlock()) return true;
 
         for (int i = 0; i < 3; i++)
         {
@@ -548,9 +598,10 @@ public class GameManager : MonoBehaviour
 
         _combo = 0;
         _clearedThisSet = false;
-        // 부활은 판이 이어지는 것이므로 실패 표시를 걷는다. 콤보가 0으로 돌아가면서
-        // 첫 클리어 전 유예도 다시 붙는다 — 하단 3행만 비워 준 상태라 그게 맞다.
+        // 부활은 판이 이어지는 것이므로 실패 표시를 걷고 유예도 처음 상태로 돌린다.
+        // 하단 3행만 비워 준 상태라 다시 발판을 만들 시간을 주는 게 맞다.
         ComboFailed = false;
+        _comboArmed = false;
         GenerateNewPieces();
         SaveGame();
         OnStateChanged?.Invoke();
@@ -564,6 +615,7 @@ public class GameManager : MonoBehaviour
         _combo             = 0;
         _clearedThisSet    = false;
         ComboFailed        = false;
+        _comboArmed        = false;
         ToggleCurrentColor = 0;
         SpecialGauge       = 0;
         DiscoLineGauge     = 0;
@@ -572,7 +624,18 @@ public class GameManager : MonoBehaviour
         OnStateChanged?.Invoke();
     }
 
+    /// <summary>최고 점수를 저장하고 순위표에도 올린다.
+    /// 갱신 지점이 네 군데(배치·무지개·줄 색맞춤·아이스 슬라이드)라 여기 하나로 모은다 —
+    /// 흩어져 있으면 새 경로를 만들 때마다 순위표 제출을 빠뜨린다.</summary>
+    void SaveHighScore()
+    {
+        PlayerPrefs.SetInt(_mk + "HighScore", HighScore);
+        Leaderboards.ReportHighScore(ModeSession.SelectedMode, HighScore);
+    }
+
     // ── 자동 저장 ────────────────────────────────────────────────
+    // 죽은 판도 그대로 저장한다. 앱이 튕겨서 게임오버 화면을 못 본 사람이 광고 부활 기회를
+    // 잃으면 안 되므로, 다음에 켰을 때 그 화면을 다시 띄워 선택할 기회를 준다.
     public void SaveGame()
     {
         var sb = new System.Text.StringBuilder();
@@ -588,6 +651,9 @@ public class GameManager : MonoBehaviour
         // 세트 도중에 나갈 수 있으므로 "이번 세트에서 지웠는지"도 같이 남긴다.
         // 안 그러면 이어하기 때 세트가 초기화돼 다 된 콤보가 끊긴다.
         PlayerPrefs.SetInt(_mk + "save_cleared_set", _clearedThisSet ? 1 : 0);
+        // 콤보 유지 규칙의 상태도 같이 남긴다. 없으면 이어하기 때 규칙이 처음 상태로
+        // 되돌아가 만회 기회가 공짜로 하나 더 생긴다.
+        PlayerPrefs.SetInt(_mk + "save_combo_armed", _comboArmed ? 1 : 0);
         for (int i = 0; i < 3; i++)
         {
             PlayerPrefs.SetInt(_mk + $"save_p{i}_shape",  CurrentPieces[i].shapeIndex);
@@ -595,7 +661,7 @@ public class GameManager : MonoBehaviour
             PlayerPrefs.SetInt(_mk + $"save_p{i}_placed", CurrentPieces[i].placed ? 1 : 0);
         }
         // 토글 모드: 현재 색상 및 게이지 저장
-        if (ModeSession.SelectedMode == 2)
+        if (ModeSession.IsToggle)
         {
             PlayerPrefs.SetInt(_mk + "save_toggle_color",   ToggleCurrentColor);
             PlayerPrefs.SetInt(_mk + "save_special_gauge",  SpecialGauge);
@@ -603,7 +669,7 @@ public class GameManager : MonoBehaviour
         // 디스코 모드: 무지개 블럭 게이지 + 곡 재생 위치 저장.
         // 디스코는 재생 위치가 곧 연출 타임라인이라, 판만 되돌리고 곡을 안 되돌리면
         // 밤거리에서 나갔다가 터널에서 이어받는 식이 된다.
-        if (ModeSession.SelectedMode == 3)
+        if (ModeSession.IsDisco)
         {
             PlayerPrefs.SetInt(_mk + "save_disco_gauge", DiscoLineGauge);
             if (BGMManager.Instance != null)
@@ -626,17 +692,17 @@ public class GameManager : MonoBehaviour
                 Board[r, c] = int.Parse(parts[r * SIZE + c]);
 
         // 토글 모드: 저장된 색상 및 게이지 복원
-        if (ModeSession.SelectedMode == 2)
+        if (ModeSession.IsToggle)
         {
             ToggleCurrentColor = PlayerPrefs.GetInt(_mk + "save_toggle_color",  0);
-            // 게이지 임계값을 3→2로 줄였으므로 옛 저장값(2)이 새 시스템에선 즉시 스폰 트리거.
-            // 로드 시점엔 [0, 1]로 클램프해서 UI/로직과 일관되게 유지.
-            SpecialGauge       = Mathf.Clamp(PlayerPrefs.GetInt(_mk + "save_special_gauge", 0), 0, 1);
+            // 임계값이 바뀐 옛 저장값이 그대로 들어오면 UI 원 개수를 넘거나 즉시 전환이 터진다.
+            // 로드 시점에 [0, 임계값-1]로 클램프해서 UI/로직과 일관되게 유지.
+            SpecialGauge       = Mathf.Clamp(PlayerPrefs.GetInt(_mk + "save_special_gauge", 0), 0, TOGGLE_CLEARS_PER_SWITCH - 1);
         }
 
         // 디스코 모드: 무지개 블럭 게이지 + 곡 재생 위치 복원.
         // 키가 없는 옛 저장은 0 — 곡을 처음부터 트는 셈이라 그대로 두어도 무해하다.
-        if (ModeSession.SelectedMode == 3)
+        if (ModeSession.IsDisco)
         {
             DiscoLineGauge = Mathf.Clamp(
                 PlayerPrefs.GetInt(_mk + "save_disco_gauge", 0), 0, DISCO_LINES_PER_RAINBOW - 1);
@@ -645,7 +711,8 @@ public class GameManager : MonoBehaviour
 
         Score  = PlayerPrefs.GetInt(_mk + "save_score", 0);
         _combo          = PlayerPrefs.GetInt(_mk + "save_combo", 0);
-        _clearedThisSet = PlayerPrefs.GetInt(_mk + "save_cleared_set", 0) == 1;
+        _clearedThisSet  = PlayerPrefs.GetInt(_mk + "save_cleared_set", 0) == 1;
+        _comboArmed      = PlayerPrefs.GetInt(_mk + "save_combo_armed", 0) == 1;
         for (int i = 0; i < 3; i++)
             CurrentPieces[i] = new PieceInstance
             {
@@ -663,9 +730,11 @@ public class GameManager : MonoBehaviour
         PlayerPrefs.DeleteKey(_mk + "save_score");
         PlayerPrefs.DeleteKey(_mk + "save_combo");
         PlayerPrefs.DeleteKey(_mk + "save_cleared_set");
+        PlayerPrefs.DeleteKey(_mk + "save_combo_armed");
         PlayerPrefs.DeleteKey(_mk + "save_toggle_color");
         PlayerPrefs.DeleteKey(_mk + "save_special_gauge");
         PlayerPrefs.DeleteKey(_mk + "save_disco_gauge");
+        PlayerPrefs.DeleteKey(_mk + "save_disco_bgm");
         for (int i = 0; i < 3; i++)
         {
             PlayerPrefs.DeleteKey(_mk + $"save_p{i}_shape");

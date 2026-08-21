@@ -44,6 +44,8 @@ public class LocalizationManager
         { "best",          new[] { "최고",              "BEST"          } },
         { "score",         new[] { "점수",              "SCORE"         } },
         { "game_over",     new[] { "게임 오버",          "GAME OVER"     } },
+        // 디스코는 콤보를 놓치는 순간 끝난다. 실패 조건을 그대로 제목으로 쓴다.
+        { "game_over_disco", new[] { "리듬을 잃다",        "RHYTHM LOST"   } },
         { "restart",       new[] { "다시 시작",          "Restart"       } },
         { "menu",          new[] { "메뉴",              "Menu"          } },
         { "resume",        new[] { "계속",              "Resume"        } },
@@ -51,13 +53,31 @@ public class LocalizationManager
         { "high_score",    new[] { "최고 점수",          "High Score"    } },
         { "new_record",    new[] { "신기록!",            "New Record!"   } },
 
-        // ── 토글 모드 스페셜 블럭 색상 변환 팝업 ──────────────────
-        { "swap_title",    new[] { "색상 변환",          "Color Swap"           } },
-        { "swap_desc",     new[] { "보드의 블럭 색상을 일괄 변환합니다",
-                                                          "Swap all block colors on the board" } },
-        { "swap_b2w",      new[] { "블랙  →  화이트",     "Black  →  White"      } },
-        { "swap_w2b",      new[] { "화이트  →  블랙",     "White  →  Black"      } },
         { "cancel",        new[] { "취소",                "Cancel"               } },
+
+        // ── 리더보드 ──────────────────────────────────────────────
+        { "leaderboard",   new[] { "리더보드",            "Leaderboard"          } },
+        { "lb_coming_soon",new[] { "추후 출시",            "Coming Soon"          } },
+        { "lb_signin_title", new[] { "로그인하고 점수를 뽐내세요",
+                                                          "Sign in and show off your score" } },
+        { "lb_signin_desc",  new[] { "로그인하면 모드별 순위표에 내 기록이 올라갑니다.\n로그인하지 않아도 게임은 그대로 즐길 수 있습니다.",
+                                                          "Sign in to put your record on the mode leaderboards.\nThe game plays just the same without it." } },
+        { "lb_signin_btn",   new[] { "로그인",              "Sign In"              } },
+        { "lb_signin_failed",new[] { "로그인하지 못했습니다", "Could not sign in"    } },
+        { "lb_loading",      new[] { "불러오는 중...",       "Loading..."           } },
+        { "lb_empty",        new[] { "아직 기록이 없습니다",  "No scores yet"        } },
+        { "lb_unavailable",  new[] { "이 기기에서는 순위표를 쓸 수 없습니다",
+                                                          "Leaderboards are unavailable on this device" } },
+
+        // ── 다시 시작 전 광고 제거 제안 ───────────────────────────
+        { "iap_title",     new[] { "광고 없이 플레이",     "Play Without Ads"     } },
+        { "iap_desc",      new[] { "한 번만 구매하면 배너와 전면 광고가 사라집니다",
+                                                          "One purchase removes banners and full-screen ads" } },
+        { "iap_buy",       new[] { "광고 제거",            "Remove Ads"           } },
+        { "iap_later",     new[] { "결제 추후 연결",        "Payment Coming Soon"  } },
+        { "iap_watch",     new[] { "광고 보고 계속하기",    "Watch Ad & Continue"  } },
+        { "iap_failed",    new[] { "지금은 구매할 수 없습니다",
+                                                          "Purchase unavailable right now" } },
 
         // ── 디스코 모드 광과민성 경고 ─────────────────────────────
         // 시작 직후 2초만 떴다 사라지므로 설명은 두 줄을 넘기지 않는다.

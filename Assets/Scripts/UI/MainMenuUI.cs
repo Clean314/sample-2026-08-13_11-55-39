@@ -12,7 +12,7 @@ public class MainMenuUI : MonoBehaviour
 {
     // ── 모드 정의 ────────────────────────────────────────────────
     static readonly string[] MODE_IMAGES        = { "Sprites/Modes/normal_mode", "Sprites/Modes/ice_mode", "Sprites/Modes/toggle_mode", "Sprites/Modes/disco_mode" };
-    static readonly int[]    MODE_UNLOCK_SCORE  = { 0, 10000, 20000, 5000 };
+    static readonly int[]    MODE_UNLOCK_SCORE  = { 0, 10000, 20000, 8000 };
     static readonly int[]    MODE_UNLOCK_FROM   = { 0, 0,    1,     2     };  // 어떤 모드의 최고점수를 확인할지
     static readonly string[] MODE_LOC_KEYS      = { "mode_normal", "mode_ice", "mode_toggle", "mode_disco" };
 
@@ -111,7 +111,13 @@ public class MainMenuUI : MonoBehaviour
 
         CreateMuteButton(canvasObj);
         CreateLanguageButton(canvasObj);
+        CreateLeaderboardButton(canvasObj);
+        // 점수를 직접 고칠 수 있는 패널이라 정식 빌드에는 들어가면 안 된다.
+        // 화면에서 숨기는 게 아니라 컴파일 자체에서 빼서, 끄는 걸 잊을 여지를 없앤다.
+        // Build Settings의 "Development Build"를 켠 빌드와 에디터에서만 나온다.
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
         CreateDebugPanel(canvasObj);
+#endif
         UpdateModeDisplay();
     }
 
@@ -635,6 +641,7 @@ public class MainMenuUI : MonoBehaviour
 
     // ── [DEBUG] 최고 점수 설정 패널 ──────────────────────────
     // 스와이프로 표시되는 현재 모드의 m{idx}_HighScore를 직접 편집
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
     void CreateDebugPanel(GameObject parent)
     {
         var panel = new GameObject("DebugPanel");
@@ -753,10 +760,50 @@ public class MainMenuUI : MonoBehaviour
             }
         });
     }
+#endif
+
+    // 언어 버튼 오른쪽에 나란히. 언어 버튼이 (30, -55)에 160 폭이라 그 뒤로 16 띄운 자리다.
+    void CreateLeaderboardButton(GameObject parent)
+    {
+        var obj = new GameObject("LeaderboardButton");
+        obj.transform.SetParent(parent.transform, false);
+
+        var img    = obj.AddComponent<Image>();
+        img.sprite = CreateRoundedRectBorderSprite(200, 100, 30, 3);
+        img.type   = Image.Type.Sliced;
+        ColorUtility.TryParseHtmlString("#e2e8f0", out Color borderColor);
+        img.color  = borderColor;
+
+        var btn = obj.AddComponent<Button>();
+        btn.onClick.AddListener(() =>
+            LeaderboardPanel.Open(parent.transform, IsComingSoon(_currentMode) ? 0 : _currentMode));
+
+        var rt              = obj.GetComponent<RectTransform>();
+        rt.anchorMin        = new Vector2(0f, 1f);
+        rt.anchorMax        = new Vector2(0f, 1f);
+        rt.pivot            = new Vector2(0f, 1f);
+        rt.anchoredPosition = new Vector2(206, -55);
+        rt.sizeDelta        = new Vector2(160, 80);
+
+        var iconObj = new GameObject("Icon");
+        iconObj.transform.SetParent(obj.transform, false);
+        var icon            = iconObj.AddComponent<Image>();
+        icon.sprite         = LoadSprite("Sprites/Logo/rank");
+        icon.preserveAspect = true;
+        icon.raycastTarget  = false;
+        var iconRt              = iconObj.GetComponent<RectTransform>();
+        iconRt.anchorMin        = iconRt.anchorMax = new Vector2(0.5f, 0.5f);
+        iconRt.pivot            = new Vector2(0.5f, 0.5f);
+        iconRt.anchoredPosition = Vector2.zero;
+        iconRt.sizeDelta        = new Vector2(56, 56);
+    }
 
     void OnRemoveAdsClicked()
     {
-        Debug.Log("광고 제거 버튼 클릭됨");
+        if (RemoveAds.Owned) return;
+        RemoveAds.Purchase(
+            onSuccess: () => Debug.Log("[MainMenu] 광고 제거 구매 완료"),
+            onFailed:  () => Debug.LogWarning("[MainMenu] 광고 제거 구매 실패"));
     }
 }
 

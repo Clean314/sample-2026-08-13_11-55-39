@@ -1,0 +1,39 @@
+// AdMob 플러그인이 앱 ID 메타데이터만 담아 두는 설정용 라이브러리다.
+//
+// 네임스페이스를 여기서 정하는 이유가 둘 있다.
+//   · AGP 8부터 AndroidManifest.xml 의 package 속성으로 네임스페이스를 정하는 것이 막혔다.
+//   · 기본값(com.google.unity.ads)은 googlemobileads-unity.aar 와 겹쳐서
+//     "Namespace is used in multiple modules" 오류가 난다. 그래서 뒤에 .androidlib 을 붙였다.
+//
+// 아래 SDK 버전들은 Unity 6000.5.6f1 이 스스로 생성하던 값을 그대로 옮긴 것이다.
+// 에디터나 Android SDK 를 올린 뒤 빌드가 깨지면 이 숫자들을 먼저 확인할 것.
+apply plugin: 'com.android.library'
+
+dependencies {
+    implementation fileTree(dir: 'bin', include: ['*.jar'])
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+}
+
+android {
+    namespace "com.google.unity.ads.androidlib"
+    compileSdk 36
+    buildToolsVersion "36.0.0"
+
+    defaultConfig {
+        minSdk 26
+        targetSdk 31
+    }
+
+    lint {
+        abortOnError false
+    }
+
+    sourceSets {
+        main {
+            manifest.srcFile 'AndroidManifest.xml'
+            res.srcDirs = ['res']
+            assets.srcDirs = ['assets']
+            jniLibs.srcDirs = ['libs']
+        }
+    }
+}
