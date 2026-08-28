@@ -8,10 +8,314 @@ using System.Collections;
 public partial class InGameUI
 {
 
+    // ── 방 ──────────────────────────────────────────────────────
+    // 1점 투시로 그린 방. 정면 벽 하나와 그것을 둘러싼 네 면(천장·바닥·좌우 벽)이다.
+    //
+    // 다섯 면을 따로 그려 이어 붙이지 않는다. 화면 픽셀마다 카메라에서 광선을 쏴 어느 면에
+    // 먼저 닿는지 찾고, 닿은 3D 좌표로 무늬를 읽는다. 방 전체를 한 번에 푸는 방식이라
+    // 모서리가 저절로 맞고, 무늬가 면을 넘어가는 자리에서도 어긋나지 않는다.
+    //
+    // 뒷벽이 화면의 ROOM_BACK_SCALE 이라는 건 방의 깊이까지 정한다. 화면 테두리가 닿는
+    // 깊이가 D×ROOM_BACK_SCALE 이므로 0.8 이면 방은 z 0.8D~D 만 차지하는 얕은 상자가 된다.
+    // "화면보다 약간 작은 벽면"이라는 조건이 곧 얕은 방을 뜻한다.
+    const float ROOM_BACK_SCALE = 0.80f;  // ── 조정 손잡이: 뒷벽이 화면에서 차지하는 비율 ──
+    const float ROOM_FOCAL      = 1200f;  // ── 조정 손잡이: 초점거리. 작을수록 원근이 세다 ──
+    const float ROOM_NEAR_MUL   = 1.16f;  // ── 조정 손잡이: 가까운 쪽 밝기 배수 ──
+    const float ROOM_FAR_MUL    = 0.64f;  // ── 조정 손잡이: 먼 쪽 밝기 배수 ──
+
+    // 굽는 해상도. 무늬가 흐릿하고 대비가 낮아 늘려 써도 티가 안 난다. 기준 해상도로 구우면
+    // 픽셀이 네 배라 시작할 때 눈에 띄게 걸린다.
+    const int   ROOM_BAKE_W = 480;
+    const int   ROOM_BAKE_H = 854;
+    const float ROOM_REF_W  = 1080f;   // CanvasScaler.referenceResolution
+    const float ROOM_REF_H  = 1920f;
+
+    // 무늬. 뒷벽 깊이를 초점거리와 같게 뒀으므로 뒷벽에서는 월드 단위가 곧 화면 픽셀이다 —
+    // 즉 TOGGLE_TILE 이 뒷벽에서 보이는 간격이고, 옆면으로 갈수록 원근이 늘리고 줄인다.
+    // 틈을 4 까지 좁혀 타일 줄눈처럼 만들었다.
+    const int TOGGLE_TILE   = 96;   // ── 조정 손잡이: 타일 간격 ──
+    const int TOGGLE_SQUARE = 92;   // ── 조정 손잡이: 타일 크기(클수록 줄눈이 가늘어짐) ──
+    const int TOGGLE_RADIUS = 16;   // ── 조정 손잡이: 모서리 반지름 ──
+
+    // 바탕과 줄눈을 같은 색상 계열의 이웃한 두 톤으로 잡는다. 톤을 붙여 두면 무늬가 배경
+    // 위에 얹힌 그래픽이 아니라 벽면 자체의 결로 보인다.
+    //
+    // 알파를 안 쓰고 결과 색을 그대로 적는다. Linear 색 공간이라 알파로 잡으면 밝은 벽과
+    // 어두운 벽에서 필요한 값이 몇 배씩 달라져 감으로 맞춰야 한다. 지금은 sRGB 로 어두운
+    // 쪽 16 단계, 밝은 쪽 21 단계 차이다 — 밝은 쪽이 더 벌어져 있어야 같은 정도로 보인다.
+    //
+    // R 이 G 보다 높으면 어두운 색은 보라로 기운다. 눈은 어두운 영역에서 색상 차이에
+    // 특히 민감해서, 몇 단계 차이만으로도 남색이 아니라 자주색으로 읽힌다.
+    // 그래서 R < G < B 순서를 지킨다.
+    //
+    // 두 방의 줄눈 폭을 sRGB 18 단계로 맞췄다. 한때 어두운 방만 두 배 가까이 벌려 놨는데,
+    // 그때는 어두운 방에 흰 블록이 올라가서 격자가 세도 안 부딪혔다. 조합을 맞바꾼 뒤로는
+    // 검은 블록이 올라가므로 같은 폭이면 격자가 판과 경쟁한다.
+    //
+    // 어두운 방 바탕. 조각 후보가 셀 없이 벽에 바로 얹혀서, 이 값은 취향이 아니라
+    // 검은 조각(32,33,40)이 벽에서 읽히느냐로 정해진다.
+    //
+    // 벽은 원근 그라데이션을 타므로 바탕값이 아니라 조각이 놓이는 자리(0,-610)에서
+    // 재야 한다. 거기서 바탕 × 약 0.73 이 나온다. 조각과의 대비비는 이렇다.
+    //     #1A2231 → 벽(19,24,35)  1.11   조각이 벽보다 밝다
+    //     #303B4A → 벽(35,43,54)  1.12   벽이 조각을 지나치는 지점. 형태가 사라진다
+    //     #384456 → 벽(41,49,63)  1.23   ← 지금
+    //     #475463 → 벽(52,61,72)  1.46
+    // 흰 방은 같은 자리에서 1.84 다. 즉 밝기를 올릴수록 좋아지지만 방이 "검은 방"으로
+    // 안 보이게 된다. 1.23 은 그 사이에서 고른 값이고, 더 어둡게 가려면 #303B4A 를
+    // 건너뛰어 한참 아래로 내려가야 한다 — 그때는 조각이 벽보다 밝아지는 쪽으로 벌어진다.
+    static readonly Color TOGGLE_BG_DARK    = new Color(0.220f, 0.267f, 0.337f);  // #384456
+    static readonly Color TOGGLE_LINE_DARK  = new Color(0.290f, 0.337f, 0.408f);  // #4A5668
+    static readonly Color TOGGLE_BG_LIGHT   = new Color(0.922f, 0.937f, 0.973f);  // #EBEFF8
+    static readonly Color TOGGLE_LINE_LIGHT = new Color(0.835f, 0.863f, 0.918f);  // #D5DCEA
+
+    // 빈 셀 — 벽에 파낸 홈. 가운데는 평평한 단색이고, 위 안쪽에 그림자가, 아래 안쪽에
+    // 얇은 빛이 걸린다. 위에서 빛이 온다고 보면 파인 자리는 그렇게 보인다.
+    //
+    // 띠를 좁게 잡는 게 핵심이다. 넓게 번지면 조각 그래픽의 또렷한 인상과 부딪힌다 —
+    // 안쪽 글로우를 넣어 봤다가 그 이유로 물렸다. 지금은 셀 높이 110 중 위 12, 아래 4 다.
+    const int TOGGLE_CELL_SHADE_PX = 12;   // ── 조정 손잡이: 위 안쪽 그림자 두께 ──
+    const int TOGGLE_CELL_LIP_PX   = 4;    // ── 조정 손잡이: 아래 안쪽 빛 두께 ──
+
+    // 알파가 아니라 결과 색을 직접 적는다. Linear 색 공간이라 같은 알파가 밝은 셀과
+    // 어두운 셀에서 전혀 다른 세기로 나온다. 지금은 양쪽 다 그림자가 sRGB 21 단계쯤
+    // 내려가고 빛이 26~28 단계쯤 올라간다 — 눈에 같은 정도로 보이는 값이다.
+    // 흰 방 쪽은 하늘색으로 기울였다. 회색일 때는 셀(191,191,209)이 백드롭 뒤 벽
+    // (201,203,212)과 대비비 1.12 라 거의 안 보였다 — 밝기가 거의 같아서, 파낸 자국의
+    // 그림자·빛만으로 버티고 있었다. 색을 벌리면 밝기 차이 없이도 자리가 읽힌다.
+    // R−B 를 −18 에서 −46 으로 벌려 1.20 이 됐다. 더 벌리면 방보다 셀이 먼저 보인다.
+    // 흰 방의 셀은 벽보다 밝은 쪽이 아니라 어두운 회색이다. 흰 블록(235~255)이 올라가는
+    // 자리라, 밝게 두면 블록과 겨우 20 단계 벌어졌다. 어둡게 파면 블록이 확실히 뜨고
+    // 판도 흰 방 안에서 한 덩어리로 또렷해진다.
+    static readonly Color32 CELL_BASE_LIGHT  = new Color32( 72,  74,  82, 255);
+    static readonly Color32 CELL_SHADE_LIGHT = new Color32( 51,  53,  61, 255);
+    static readonly Color32 CELL_LIP_LIGHT   = new Color32( 98, 100, 108, 255);
+    static readonly Color32 CELL_BASE_DARK   = new Color32( 43,  43,  61, 255);
+    static readonly Color32 CELL_SHADE_DARK  = new Color32( 22,  22,  34, 255);
+    static readonly Color32 CELL_LIP_DARK    = new Color32( 64,  65,  84, 255);
+
+    // ── 백드롭 ──────────────────────────────────────────────────
+    // 판 뒤에만 까는 어두운 판. 디스코와 같은 방식이다(_gridRt 의 첫 자식, 990×990).
+    //
+    // 양쪽 모드 다 어둡게 간다. 밝게 들어 올리면 방보다 백드롭이 먼저 눈에 들어와
+    // 배경을 그린 의미가 없어진다. 어둡게 깔면 셀 사이 틈이 가라앉아 격자만 떠오른다.
+    //
+    // 알파가 세 배 차이 나는 건 Linear 색 공간 때문이다. 거의 흰 벽은 조금만 눌러도
+    // 내려가지만 어두운 벽은 한참 눌러야 셀과 벌어진다.
+    const float BACKDROP_SIZE = 990f;
+    static readonly Color TOGGLE_BACKDROP_ON_DARK  = new Color(0f, 0f, 0f, 0.80f);
+    static readonly Color TOGGLE_BACKDROP_ON_LIGHT = new Color(0f, 0f, 0f, 0.18f);
+
+    Image  _roomImage;
+    Image  _backdrop;
+    Sprite _roomDark, _roomLight;
+    Sprite _cellLight, _cellDark;
+    Sprite _toggleCellSprite;   // 지금 방에 맞는 빈 셀. RefreshGrid 가 읽어 간다
+
+    /// <summary>
+    /// 배경 바로 위에 세우는 방. 두 모드를 시작할 때 다 구워 두고 전환 때는 스프라이트만
+    /// 바꾼다 — 색을 바꿔 끼우려면 다시 구워야 하는데, 판이 도는 중에 굽으면 끊긴다.
+    /// </summary>
+    void BuildToggleScene()
+    {
+        _roomDark  = MakeRoomSprite(TOGGLE_BG_DARK,  TOGGLE_LINE_DARK);
+        _roomLight = MakeRoomSprite(TOGGLE_BG_LIGHT, TOGGLE_LINE_LIGHT);
+        _cellLight = MakeToggleCellSprite(CELL_BASE_LIGHT, CELL_SHADE_LIGHT, CELL_LIP_LIGHT);
+        _cellDark  = MakeToggleCellSprite(CELL_BASE_DARK,  CELL_SHADE_DARK,  CELL_LIP_DARK);
+        _toggleCellSprite = _cellLight;   // 시작은 화이트 모드 = 흰 방
+
+        var go = new GameObject("ToggleRoom");
+        go.transform.SetParent(_canvas.transform, false);
+        go.transform.SetSiblingIndex(_bgImage.transform.GetSiblingIndex() + 1);
+
+        _roomImage               = go.AddComponent<Image>();
+        _roomImage.sprite        = _roomLight;   // 시작은 화이트 모드 = 흰 방
+        _roomImage.type          = Image.Type.Simple;
+        _roomImage.color         = Color.white;   // 색은 스프라이트가 통째로 들고 있다
+        _roomImage.raycastTarget = false;
+
+        var rt = go.GetComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = rt.offsetMax = Vector2.zero;
+    }
+
+    /// <summary>
+    /// 판 뒤에 까는 어두운 판. 그리드의 첫 자식이라 셀보다는 아래, 방보다는 위다.
+    /// BuildGrid 가 끝난 뒤에 불러야 한다 — _gridRt 에 붙기 때문이다.
+    /// </summary>
+    void BuildToggleGridBackdrop()
+    {
+        var go = new GameObject("ToggleGridBackdrop");
+        go.transform.SetParent(_gridRt, false);
+        go.transform.SetAsFirstSibling();
+
+        _backdrop = go.AddComponent<Image>();
+        // 모서리 반지름을 border 로 들고 있는 작은 스프라이트를 Sliced 로 늘린다.
+        _backdrop.sprite        = MakeRoundedSprite(120, 120, 32);
+        _backdrop.type          = Image.Type.Sliced;
+        _backdrop.color         = TOGGLE_BACKDROP_ON_LIGHT;   // 시작은 화이트 모드 = 흰 방
+        _backdrop.raycastTarget = false;
+
+        var rt = go.GetComponent<RectTransform>();
+        rt.anchorMin        = rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot            = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = Vector2.zero;
+        rt.sizeDelta        = new Vector2(BACKDROP_SIZE, BACKDROP_SIZE);
+    }
+
+    /// <summary>
+    /// 빈 셀 한 장 — 벽에 파낸 홈.
+    ///
+    /// 위 안쪽에 그림자, 아래 안쪽에 얇은 빛. 둘 다 셀 높이에서 재는 가로 띠라 둥근
+    /// 모서리에서는 알파 마스크에 잘려 자연스럽게 곡선을 따라간다.
+    /// Texture2D 는 y=0 이 아래쪽이라 위에서부터의 거리는 뒤집어 세야 한다.
+    /// </summary>
+    Sprite MakeToggleCellSprite(Color32 baseCol, Color32 shade, Color32 lip)
+    {
+        const int SIZE = 110, R = 30;
+
+        var tex = new Texture2D(SIZE, SIZE, TextureFormat.ARGB32, false);
+        tex.filterMode = FilterMode.Bilinear;
+        var px = new Color32[SIZE * SIZE];
+
+        float half  = SIZE * 0.5f;
+        float inner = half - R;   // 모서리 원의 중심이 놓이는 사각형의 반너비
+
+        for (int y = 0; y < SIZE; y++)
+            for (int x = 0; x < SIZE; x++)
+            {
+                float ax = Mathf.Abs(x + 0.5f - half) - inner;
+                float ay = Mathf.Abs(y + 0.5f - half) - inner;
+                float ox = Mathf.Max(ax, 0f);
+                float oy = Mathf.Max(ay, 0f);
+                float d = R - Mathf.Sqrt(ox * ox + oy * oy);
+                if (ax < 0f && ay < 0f) d = R - Mathf.Max(ax, ay);
+
+                if (d <= 0f) { px[y * SIZE + x] = new Color32(0, 0, 0, 0); continue; }
+
+                Color32 c = baseCol;
+
+                float fromTop = SIZE - 1 - y;
+                if (fromTop < TOGGLE_CELL_SHADE_PX)
+                {
+                    float k = fromTop / TOGGLE_CELL_SHADE_PX;
+                    c = Color32.Lerp(shade, baseCol, k * k * (3f - 2f * k));
+                }
+
+                // 아래 빛이 나중에 온다. 셀이 아주 낮아 두 띠가 겹치면 빛이 이기는 게 맞다.
+                if (y < TOGGLE_CELL_LIP_PX)
+                {
+                    float k = y / (float)TOGGLE_CELL_LIP_PX;
+                    c = Color32.Lerp(lip, baseCol, k * k * (3f - 2f * k));
+                }
+
+                px[y * SIZE + x] = new Color32(c.r, c.g, c.b,
+                                               (byte)(Mathf.Clamp01(d) * 255f));
+            }
+
+        tex.SetPixels32(px);
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, SIZE, SIZE), new Vector2(0.5f, 0.5f));
+    }
+
+    /// <summary>
+    /// 방 한 장을 굽는다. 카메라는 원점에서 +z 를 보고, 방은 x∈[-hx,hx] y∈[-hy,hy] 인
+    /// 상자다. 뒷벽 깊이 D 를 초점거리와 같게 둬서 뒷벽에서 월드 단위 = 화면 픽셀이 된다.
+    /// </summary>
+    Sprite MakeRoomSprite(Color bg, Color line)
+    {
+        const float D = ROOM_FOCAL;
+        float hx = ROOM_BACK_SCALE * ROOM_REF_W * 0.5f;
+        float hy = ROOM_BACK_SCALE * ROOM_REF_H * 0.5f;
+
+        // 그라데이션의 양 끝. 화면 테두리가 닿는 깊이가 가장 가깝고, 뒷벽 구석이 가장 멀다.
+        float dNear = D * ROOM_BACK_SCALE;
+        float dFar  = Mathf.Sqrt(hx * hx + hy * hy + D * D);
+
+        // 굽는 픽셀 하나가 기준 해상도로 몇 픽셀인지. 경계 흐림 폭을 여기 맞춰야
+        // 굽는 해상도를 바꿔도 무늬가 같은 정도로 부드럽다.
+        float pixScale = ROOM_REF_W / ROOM_BAKE_W;
+
+        var tex = new Texture2D(ROOM_BAKE_W, ROOM_BAKE_H, TextureFormat.RGB24, false);
+        tex.filterMode = FilterMode.Bilinear;
+        tex.wrapMode   = TextureWrapMode.Clamp;
+        var px = new Color32[ROOM_BAKE_W * ROOM_BAKE_H];
+
+        for (int y = 0; y < ROOM_BAKE_H; y++)
+            for (int x = 0; x < ROOM_BAKE_W; x++)
+            {
+                // 굽는 좌표를 기준 해상도의 화면 좌표로. Texture2D 는 y=0 이 아래쪽이고
+                // 화면도 아래가 -y 라 그대로 두면 위아래가 맞는다.
+                float sx = ((x + 0.5f) / ROOM_BAKE_W - 0.5f) * ROOM_REF_W;
+                float sy = ((y + 0.5f) / ROOM_BAKE_H - 0.5f) * ROOM_REF_H;
+
+                // 광선 (sx, sy, f) 가 다섯 면 중 어디에 먼저 닿는가. t 가 작을수록 가깝다.
+                float t    = D / ROOM_FOCAL;   // 뒷벽
+                int   face = 0;
+                float ax = Mathf.Abs(sx), ay = Mathf.Abs(sy);
+                if (ax > 1e-4f) { float tx = hx / ax; if (tx < t) { t = tx; face = 1; } }
+                if (ay > 1e-4f) { float ty = hy / ay; if (ty < t) { t = ty; face = 2; } }
+
+                float wx = sx * t, wy = sy * t, wz = ROOM_FOCAL * t;
+                float dist = Mathf.Sqrt(wx * wx + wy * wy + wz * wz);
+
+                // 면마다 무늬를 읽는 두 축이 다르다. 옆면은 깊이 축이 비스듬해서 한 픽셀이
+                // 훨씬 넓은 범위를 덮으므로 흐림 폭을 키운다 — 안 그러면 줄눈이 지글거린다.
+                float u, v, aa = dist / ROOM_FOCAL * pixScale;
+                if      (face == 0) { u = wx; v = wy; }
+                else if (face == 1) { u = wz; v = wy; aa *= 2.5f; }
+                else                { u = wx; v = wz; aa *= 2.5f; }
+
+                float cover = RoomJointCoverage(u, v, Mathf.Max(aa, 0.5f));
+
+                float g = Mathf.Clamp01((dist - dNear) / (dFar - dNear));
+                g = g * g * (3f - 2f * g);
+                float mul = Mathf.Lerp(ROOM_NEAR_MUL, ROOM_FAR_MUL, g);
+
+                Color c = Color.Lerp(bg, line, cover) * mul;
+                px[y * ROOM_BAKE_W + x] = new Color32(
+                    (byte)(Mathf.Clamp01(c.r) * 255f),
+                    (byte)(Mathf.Clamp01(c.g) * 255f),
+                    (byte)(Mathf.Clamp01(c.b) * 255f), 255);
+            }
+
+        tex.SetPixels32(px);
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, ROOM_BAKE_W, ROOM_BAKE_H),
+                             new Vector2(0.5f, 0.5f));
+    }
+
+    /// <summary>
+    /// 벽면 위 한 점이 줄눈에 얼마나 걸치는지. 타일 안이면 0, 줄눈이면 1 이다.
+    /// aa 는 그 지점에서 화면 한 픽셀이 덮는 월드 길이 — 경계를 그만큼 흐려 계단을 없앤다.
+    /// </summary>
+    static float RoomJointCoverage(float u, float v, float aa)
+    {
+        float inner = TOGGLE_SQUARE * 0.5f - TOGGLE_RADIUS;
+        float cu = Mathf.Repeat(u, TOGGLE_TILE) - TOGGLE_TILE * 0.5f;
+        float cv = Mathf.Repeat(v, TOGGLE_TILE) - TOGGLE_TILE * 0.5f;
+
+        float dx = Mathf.Abs(cu) - inner;
+        float dy = Mathf.Abs(cv) - inner;
+        float ox = Mathf.Max(dx, 0f);
+        float oy = Mathf.Max(dy, 0f);
+        float dist = TOGGLE_RADIUS - Mathf.Sqrt(ox * ox + oy * oy);
+        if (dx < 0f && dy < 0f) dist = TOGGLE_RADIUS - Mathf.Max(dx, dy);
+
+        // dist > 0 이 타일 안. 경계(0)에서 0.5 가 되도록 2aa 폭으로 넘긴다.
+        return Mathf.Clamp01(0.5f - dist / (2f * aa));
+    }
+
     // 토글 모드 배경/텍스트 색상 갱신
     void RefreshToggleModeBackground()
     {
         bool blackMode = _gm.ToggleCurrentColor == 1;
+
+        // 방은 지금 지울 색과 같은 쪽으로 간다 — 화이트 모드면 흰 방, 블랙 모드면 검은 방.
+        // 배경·셀·게이지·글자가 전부 이 하나를 따라가므로, 조합을 뒤집고 싶으면
+        // 여기 한 줄만 뒤집으면 된다.
+        bool lightRoom = !blackMode;
 
         // 색상이 실제로 전환됐을 때만 효과음 재생
         int curColor = _gm.ToggleCurrentColor;
@@ -22,28 +326,39 @@ public partial class InGameUI
         }
         _prevToggleColor = curColor;
 
+        // 방이 화면을 덮으므로 배경은 화면비가 안 맞을 때 드러나는 자리를 메우는 몫이다.
         if (_bgImage != null)
-            _bgImage.color = blackMode ? BG_LIGHT : BG_DARK;
+            _bgImage.color = lightRoom ? TOGGLE_BG_LIGHT : TOGGLE_BG_DARK;
+
+        if (_roomImage != null)
+            _roomImage.sprite = lightRoom ? _roomLight : _roomDark;
+
+        if (_backdrop != null)
+            _backdrop.color = lightRoom ? TOGGLE_BACKDROP_ON_LIGHT : TOGGLE_BACKDROP_ON_DARK;
+
+        _toggleCellSprite = lightRoom ? _cellLight : _cellDark;
 
         if (_scoreText != null)
-            _scoreText.color = blackMode ? new Color(0.10f, 0.08f, 0.20f) : Color.white;
+            _scoreText.color = lightRoom ? new Color(0.10f, 0.08f, 0.20f) : Color.white;
 
         if (_highScoreText != null)
-            _highScoreText.color = blackMode ? new Color(0.60f, 0.40f, 0.00f) : GOLD;
+            _highScoreText.color = lightRoom ? new Color(0.60f, 0.40f, 0.00f) : GOLD;
 
     }
 
     // 게이지 원 색상 갱신.
-    // 채워진 원은 지금 모드의 색(화이트 모드=흰색, 블랙 모드=검정)으로 칠해
-    // 게이지만 봐도 어느 색을 지워야 하는지 알 수 있게 한다.
+    //
+    // 예전엔 채운 원을 지금 지울 색으로 칠해 게이지가 모드까지 알려 줬다. 이제는 방 자체가
+    // 그 색이라 게이지가 같은 말을 반복할 필요가 없고, 오히려 같은 색이면 방에 묻힌다.
+    // 그래서 방 밝기의 반대로 칠해 눈에 걸리게만 한다.
     void RefreshGauge()
     {
         if (_gaugeCircles == null || _gaugeCircles[0] == null) return;
-        bool blackMode   = _gm.ToggleCurrentColor == 1;
-        Color fullColor  = blackMode
-            ? new Color(0.12f, 0.12f, 0.16f)   // 밝은 배경 위의 검정 원
-            : new Color(0.92f, 0.92f, 0.94f);  // 어두운 배경 위의 흰 원
-        Color emptyColor = blackMode
+        bool lightRoom   = _gm.ToggleCurrentColor == 0;
+        Color fullColor  = lightRoom
+            ? new Color(0.12f, 0.12f, 0.16f)   // 밝은 방 위의 검정 원
+            : new Color(0.92f, 0.92f, 0.94f);  // 어두운 방 위의 흰 원
+        Color emptyColor = lightRoom
             ? new Color(0.55f, 0.55f, 0.65f)
             : new Color(0.30f, 0.30f, 0.40f);
 

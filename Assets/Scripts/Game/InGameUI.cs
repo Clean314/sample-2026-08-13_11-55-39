@@ -277,6 +277,11 @@ public partial class InGameUI : MonoBehaviour
     const float TUNNEL_FOCAL  = 1700f;    // 원근 초점 거리(px) — z=zNear에서 ~3700px (충분히 화면 밖)
     const float TUNNEL_SPIN_DEG = 45f;    // 회전 페이즈 각속도 (deg/sec)
 
+    // 터널이 화면을 다 먹지 않게 눌러 두는 값. 링은 원래 페이드인 뒤 불투명이라
+    // 구간 내내 배경이 통째로 터널이 됐고, 그 위에 얹힌 보드가 묻혔다.
+    const float TUNNEL_RING_ALPHA  = 0.05f;   // ── 조정 손잡이: 링 최대 불투명도 ──
+    const float TUNNEL_SPOKE_ALPHA = 0.1f;   // ── 조정 손잡이: 스포크(트레일) 불투명도 ──
+
     // ── 구부러진 터널 (2차 터널 전용, 1차는 일직선) ──────────────────
     // 사인 곡선을 겹치는 대신 "곡률"을 직접 구간별로 정한다. 한 구간 동안은 곡률이 일정해서
     // 미끄럼틀처럼 한쪽으로 계속 감기고, 구간이 바뀔 때만 짧게 반대 방향으로 넘어간다.
@@ -368,7 +373,17 @@ public partial class InGameUI : MonoBehaviour
     float           _tunnelTravel;        // 터널 축을 따라 누적한 진행 거리 (z 단위)
     float           _tunnelCurveSeed;     // 구간별 곡률을 뽑는 해시 시드. 터널이 켜질 때마다 새로 뽑는다
     bool            _curveOn;             // 이번 터널이 굽는지. 1차는 일직선, 2차만 굽는다
-    Image           _discoGridBackdrop;   // 도시 배경 구간에는 감춰야 빈 셀 반투명 효과가 살아남
+    // 그리드 뒤에 까는 검은 판. 배경이 무엇이든 그 위에 일정한 바닥을 만들어 준다.
+    Image           _discoGridBackdrop;
+    // ── 조정 손잡이: 그 판의 진하기 ──
+    // 배경이 밝아지면 BRIGHT 쪽으로 옮겨 간다. 화이트아웃 구간에서 유리 격자가
+    // 흰 배경에 묻히지 않으려면 바닥이 그만큼 어두워져야 한다.
+    const float DISCO_BACKDROP_ALPHA        = 0.45f;  // 평소(어두운 배경)
+    const float DISCO_BACKDROP_ALPHA_BRIGHT = 0.92f;  // 화이트아웃 최대
+    const float DISCO_BACKDROP_SCENE        = 0.45f;  // 도시·드라이빙 구간의 가중치
+
+    // 아이스 뒤로가기 버튼의 화살표. IceBackground 의 WAVE_DARK 와 같은 파랑이다.
+    static readonly Color32 ICE_BACK_BLUE = new Color32(0, 112, 216, 255);
     static readonly Color TUNNEL_COLOR     = new Color(0.30f, 0.75f, 1.00f); // skyblue (50~64s)
     static readonly Color TUNNEL_COLOR_RED = new Color(1.00f, 0.18f, 0.18f); // 81~97s 빨강
 
@@ -392,13 +407,55 @@ public partial class InGameUI : MonoBehaviour
 
     // ── 색상 상수 ───────────────────────────────────────────────
     static readonly Color BG_DARK         = new Color(0.086f, 0.082f, 0.141f); // #161524 (화이트 모드 / 기본)
-    static readonly Color BG_LIGHT        = new Color(0.96f,  0.96f,  1.00f);  // 블랙 모드 배경
     static readonly Color CELL_EMPTY_DARK = new Color(0.17f,  0.17f,  0.24f);  // 화이트 모드 빈 셀
+    // 아이스에서 블록이 놓인 셀의 밑판. 위에 불투명한 얼음 PNG 가 덮이므로 거의 보이지 않지만,
+    // 모서리 곡률 차이로 삐져나오는 부분이 배경을 가리지 않게 반만 남긴다.
+    const float ICE_FILL_ALPHA = 0.5f;   // ── 조정 손잡이: 블록 놓인 셀 밑판의 불투명도 ──
+
     static readonly Color CELL_EMPTY_LIGHT= new Color(0.75f,  0.75f,  0.82f);  // 블랙 모드 빈 셀
     static readonly Color GOLD            = new Color(1f,     0.85f,  0.3f);
     // 도시 구간 빈 셀: 채움 대신 얼음빛 회색 내곽선만 → 도시를 가리지 않으면서 격자는 읽힘.
     // ── 조정 손잡이: 선 두께(px, 110×110 셀 기준)와 색/투명도 ──
     const int CELL_OUTLINE_PX = 2;
+
+    // 디스코 빈 셀: 색도 윤곽선도 없이 유리판 한 장.
+    //
+    // 배경이 곡을 따라 통째로 바뀌는 모드라, 셀에 색을 주면 그때그때 다른 물건처럼 보인다.
+    // (예전에는 도시 구간만 내곽선, 나머지는 반투명 채움이라 둘이 번갈아 나왔다)
+    // 흰색만 아주 옅게 깔면 뒤 색을 그대로 통과시키고 밝기만 살짝 올려서, 배경이 뭐든
+    // 유리는 늘 같은 유리로 보인다.
+    //
+    // 가장자리는 선을 긋지 않고 안쪽으로 번지게 한다. 선이면 테두리로 읽히지만
+    // 번지면 판의 두께로 읽힌다 — 유리처럼 보이는 건 흐릿함이 아니라 이 두 가지다.
+    //
+    // 세 겹으로 쌓는다. 셋 다 가장자리에서 안쪽으로만 번지고 셀 밖으로는 넘어가지 않는다.
+    //   막   가장 옅게 깔리는 바탕. 배경이 검을 때 격자가 아예 사라지지 않을 만큼만.
+    //   번짐 넓고 약하게 퍼지는 빛. 유리의 두께처럼 읽힌다.
+    //   선   가장자리 1.5px 의 밝은 줄. 유리 모서리에 빛이 걸린 자리다.
+    //
+    // 값이 작아 보이는 건 이 프로젝트가 Linear 색 공간이기 때문이다(ProjectSettings).
+    // 선형에서는 알파 0.09 가 화면에 sRGB 0.33(회색 판)으로 나온다 — sRGB 기준으로
+    // 눈에 보이길 원하는 밝기의 약 2.2제곱이 여기 들어갈 값이다.
+    // 형태와 세기는 손에 맞춘 값이고, 색 두 개만 cell.png 에서 가져왔다.
+    //   안쪽 — 막 + 번짐 + 가장자리 선. 밝은 하늘색이고 가운데로 갈수록 사라진다.
+    //   바깥 — 남색 그림자. 검정이 아니라 남색인 게 레퍼런스의 색감이고, 디스코 배경과도 붙는다.
+    // 이웃 타일의 그림자와 사이에서 만나 어두운 이음매를 만든다. 배경이 밝을 때 격자가
+    // 읽히는 건 이 이음매 덕이다 — 밝은 글로우는 밝은 배경에서 대비를 잃는다.
+    const float GLASS_INSET        = 7f;     // ── 조정 손잡이: 유리를 셀 안으로 밀어 넣는 폭 ──
+    const float GLASS_CORNER       = 23f;    // ── 조정 손잡이: 유리 모서리 반지름 ──
+    const float GLASS_BODY_ALPHA   = 0.006f; // ── 조정 손잡이: 바탕 막 ──
+    const float GLASS_RIM_ALPHA    = 0.100f; // ── 조정 손잡이: 번짐의 세기 ──
+    // 18 을 넘기면 네 모서리의 글로우가 가운데서 만나 X 자 자국이 생긴다.
+    const float GLASS_RIM_PX       = 12f;    // ── 조정 손잡이: 번짐이 안으로 퍼지는 거리 ──
+    const float GLASS_EDGE_ALPHA   = 0.450f; // ── 조정 손잡이: 가장자리 선의 세기 ──
+    const float GLASS_EDGE_PX      = 1.8f;   // ── 조정 손잡이: 그 선의 두께 ──
+    const float GLASS_SHADOW_ALPHA = 0.55f;  // ── 조정 손잡이: 바깥 그림자 진하기 ──
+    const float GLASS_SHADOW_PX    = 3.6f;   // ── 조정 손잡이: 그림자가 퍼지는 거리 ──
+
+    static readonly Color32 GLASS_TINT   = new Color32(190, 229, 255, 255);  // 안쪽 글로우
+    static readonly Color32 GLASS_SHADOW = new Color32(  0,  53,  88, 255);  // 바깥 그림자
+
+    Sprite _sprGlassCell;
     static readonly Color CELL_OUTLINE_ICE = new Color(0.78f, 0.85f, 0.92f, 0.38f);
 
 
@@ -464,10 +521,17 @@ public partial class InGameUI : MonoBehaviour
 
         BuildCanvas();
         BuildBackground();
+
+        // 배경 이미지 바로 위, 점수·그리드보다는 아래.
+        if (ModeSession.IsIce)
+            IceBackground.Create(_canvas.transform, _bgImage.transform.GetSiblingIndex() + 1);
+        if (ModeSession.IsToggle) BuildToggleScene();
         BuildScoreArea();
         BuildBackButton();
         BuildMuteButton();
+        BuildHelpButton();
         BuildGrid();
+        if (ModeSession.IsToggle) BuildToggleGridBackdrop();
         BuildPieceTray();
 
         if (ModeSession.IsDisco)
@@ -574,6 +638,12 @@ public partial class InGameUI : MonoBehaviour
             _dragGuideSprite      = LoadSpriteFromPath("Sprites/UI/drag");
         }
 
+        // 빈 셀 유리판. 디스코에서 만든 스타일인데 아이스도 같이 쓴다.
+        // 안쪽 글로우와 바깥 그림자가 붙어 있어, 배경이 밝은 하늘이든 어두운 터널이든
+        // 둘 중 하나는 항상 대비를 만든다 — 아이스가 겪던 문제가 정확히 그것이었다.
+        if (ModeSession.IsDisco || ModeSession.IsIce)
+            _sprGlassCell = MakeGlassCellSprite(110);
+
         // 디스코 모드
         if (ModeSession.IsDisco)
         {
@@ -627,9 +697,10 @@ public partial class InGameUI : MonoBehaviour
         var obj = new GameObject("Background");
         obj.transform.SetParent(_canvas.transform, false);
         _bgImage = obj.AddComponent<Image>();
-        _bgImage.color = ModeSession.IsDisco
-            ? new Color(0.05f, 0.03f, 0.10f)
-            : BG_DARK;
+        // 아이스는 이 한 장이 하늘이자 바다다. IceBackground 가 그 위에 구름·빙산·물결만 얹는다.
+        _bgImage.color = ModeSession.IsDisco ? new Color(0.05f, 0.03f, 0.10f)
+                       : ModeSession.IsIce   ? (Color)IceBackground.SKY
+                       :                       BG_DARK;
         var rt = obj.GetComponent<RectTransform>();
         rt.anchorMin = Vector2.zero;
         rt.anchorMax = Vector2.one;
@@ -657,7 +728,7 @@ public partial class InGameUI : MonoBehaviour
         hsRt.anchoredPosition = new Vector2(0, discoMode ? -105f : -70f);
         hsRt.sizeDelta        = new Vector2(700, 70);
 
-        // Score (흰색, 크게)
+        // Score (크게)
         var sGo = new GameObject("Score");
         sGo.transform.SetParent(_canvas.transform, false);
         _scoreText            = sGo.AddComponent<Text>();
@@ -788,10 +859,14 @@ public partial class InGameUI : MonoBehaviour
         var obj = new GameObject("BackButton");
         obj.transform.SetParent(_canvas.transform, false);
 
+        // 아이스는 밝은 하늘 위라 어두운 판이 겉돈다. 흰 판에 파란 화살표로 뒤집으면
+        // 얼음-바다 팔레트에 맞으면서 대비도 4.9:1 로 넉넉하다.
+        bool iceBack = ModeSession.IsIce;
+
         var img = obj.AddComponent<Image>();
         img.sprite = MakeRoundedSprite(100, 80, 20);
         img.type   = Image.Type.Sliced;
-        img.color  = new Color(0.25f, 0.25f, 0.35f);
+        img.color  = iceBack ? Color.white : new Color(0.25f, 0.25f, 0.35f);
 
         var btn = obj.AddComponent<Button>();
         btn.onClick.AddListener(() =>
@@ -812,7 +887,7 @@ public partial class InGameUI : MonoBehaviour
         var txt = txtGo.AddComponent<Text>();
         txt.font      = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
         txt.fontSize  = 50;
-        txt.color     = Color.white;
+        txt.color     = iceBack ? (Color)ICE_BACK_BLUE : Color.white;
         txt.alignment = TextAnchor.MiddleCenter;
         txt.text      = "<";
         var txtRt = txtGo.GetComponent<RectTransform>();
@@ -1091,11 +1166,13 @@ public partial class InGameUI : MonoBehaviour
         int  activeVal  = toggleMode
             ? (_gm.ToggleCurrentColor == 0 ? GameManager.TOGGLE_WHITE_IDX : GameManager.TOGGLE_BLACK_IDX) + 1
             : -1;
-        Color cellEmpty = (toggleMode && _gm.ToggleCurrentColor == 1) ? CELL_EMPTY_LIGHT : CELL_EMPTY_DARK;
+        // 빈 셀도 방을 따라간다 — 흰 방이면 밝은 셀, 검은 방이면 어두운 셀.
+        Color cellEmpty = (toggleMode && _gm.ToggleCurrentColor == 0) ? CELL_EMPTY_LIGHT : CELL_EMPTY_DARK;
         // 전용 배경이 뜨는 동안은 채움을 거의 투명하게 → 배경이 그리드 사이로 그대로 보임.
         // 빈 셀은 아래에서 내곽선으로 따로 그리므로 이 값은 블록이 놓인 셀의 배경에만 적용된다.
         bool sceneBg = SceneBackgroundActive;
         if (sceneBg) cellEmpty.a = 0.15f;
+        if (ModeSession.IsIce) cellEmpty.a *= ICE_FILL_ALPHA;
 
         for (int r = 0; r < 8; r++)
             for (int c = 0; c < 8; c++)
@@ -1160,12 +1237,28 @@ public partial class InGameUI : MonoBehaviour
                     continue;
                 }
 
-                // 배경 레이어. 도시 구간의 빈 셀만 채움 없는 내곽선으로 대체한다
-                // (블록이 놓인 셀은 오버레이가 덮으므로 기존 반투명 채움 그대로).
-                bool cityOutline = sceneBg && v == 0;
-                _cellImages[r, c].sprite = cityOutline ? _sprCellOutline : _spr110;
-                _cellImages[r, c].type   = Image.Type.Sliced;
-                _cellImages[r, c].color  = cityOutline ? CELL_OUTLINE_ICE : cellEmpty;
+                // 배경 레이어.
+                //   디스코·아이스 : 빈 칸은 언제나 같은 유리판. 배경이 바뀌어도 안 흔들린다.
+                //   토글          : 방 밝기에 맞춰 바뀌는 안쪽 글로우 셀.
+                //   그 밖         : 도시 구간의 빈 셀만 채움 없는 내곽선으로 대체
+                //                   (블록이 놓인 셀은 오버레이가 덮으므로 기존 채움 그대로).
+                // 두 스프라이트 다 해당 모드에서만 구워지므로 null 검사가 곧 모드 검사다.
+                Sprite bakedCell = v != 0 ? null
+                                 : _sprGlassCell != null ? _sprGlassCell
+                                 : _toggleCellSprite;
+                if (bakedCell != null)
+                {
+                    _cellImages[r, c].sprite = bakedCell;
+                    _cellImages[r, c].type   = Image.Type.Simple;
+                    _cellImages[r, c].color  = Color.white;   // 색과 세기는 스프라이트가 들고 있다
+                }
+                else
+                {
+                    bool cityOutline = sceneBg && v == 0;
+                    _cellImages[r, c].sprite = cityOutline ? _sprCellOutline : _spr110;
+                    _cellImages[r, c].type   = Image.Type.Sliced;
+                    _cellImages[r, c].color  = cityOutline ? CELL_OUTLINE_ICE : cellEmpty;
+                }
 
                 // 블록 오버레이
                 if (v != 0)
@@ -1966,6 +2059,61 @@ public partial class InGameUI : MonoBehaviour
         tex.Apply();
         return Sprite.Create(tex, new Rect(0, 0, w, h), new Vector2(0.5f, 0.5f),
             100f, 0, SpriteMeshType.FullRect, new Vector4(r, r, r, r));
+    }
+
+    /// <summary>
+    /// 디스코 빈 셀용 유리 타일. cell.png 를 그대로 옮긴 프로파일이다.
+    ///
+    /// 셀 사각형(size)보다 GLASS_INSET 만큼 작은 타일을 그리고, 그렇게 남은 테두리 공간을
+    /// 그림자가 쓴다. 셀 rect 자체는 그대로라 탭 판정에는 영향이 없다.
+    /// 안팎이 붙어 있어 배경이 어둡든 밝든 둘 중 하나는 항상 대비를 만든다.
+    /// </summary>
+    Sprite MakeGlassCellSprite(int size)
+    {
+        var tex = new Texture2D(size, size, TextureFormat.ARGB32, false);
+        tex.filterMode = FilterMode.Bilinear;
+        var px = new Color32[size * size];
+
+        float half  = size * 0.5f;
+        float inner = half - GLASS_INSET - GLASS_CORNER;  // 모서리 원의 중심이 놓이는 사각형의 반너비
+
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                // 타일 경계까지의 거리. 안쪽이 양수, 바깥(그림자 영역)이 음수다.
+                float ax = Mathf.Abs(x + 0.5f - half) - inner;
+                float ay = Mathf.Abs(y + 0.5f - half) - inner;
+                float ox = Mathf.Max(ax, 0f);
+                float oy = Mathf.Max(ay, 0f);
+                float dist = GLASS_CORNER - Mathf.Sqrt(ox * ox + oy * oy);
+                if (ax < 0f && ay < 0f) dist = GLASS_CORNER - Mathf.Max(ax, ay);
+
+                if (dist <= 0f)
+                {
+                    // 바깥 — 경계에서 가장 진하고 멀어질수록 사라진다.
+                    // 스프라이트 끝에서 딱 잘리면 네모난 자국이 남으므로 마지막 3px 을 마저 깎는다.
+                    float d  = -dist;
+                    float sh = GLASS_SHADOW_ALPHA
+                             * Mathf.Exp(-(d / GLASS_SHADOW_PX) * (d / GLASS_SHADOW_PX))
+                             * Mathf.Clamp01((GLASS_INSET - d) / 2f);
+                    px[y * size + x] = new Color32(GLASS_SHADOW.r, GLASS_SHADOW.g, GLASS_SHADOW.b,
+                                                   (byte)(Mathf.Clamp01(sh) * 255f));
+                    continue;
+                }
+
+                // 안쪽 — 막 위에 넓은 번짐과 얇은 가장자리 선을 얹는다.
+                float rim  = GLASS_RIM_ALPHA  * Mathf.Exp(-(dist / GLASS_RIM_PX)  * (dist / GLASS_RIM_PX));
+                float edge = GLASS_EDGE_ALPHA * Mathf.Exp(-(dist / GLASS_EDGE_PX) * (dist / GLASS_EDGE_PX));
+                float a    = GLASS_BODY_ALPHA + rim + edge;
+                a *= Mathf.Clamp01(dist);   // 타일 경계 1px 안티에일리어싱
+
+                px[y * size + x] = new Color32(GLASS_TINT.r, GLASS_TINT.g, GLASS_TINT.b,
+                                               (byte)(Mathf.Clamp01(a) * 255f));
+            }
+
+        tex.SetPixels32(px);
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
     }
 
     bool InRoundedRect(int px, int py, int w, int h, int r)

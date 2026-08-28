@@ -273,6 +273,18 @@ public partial class InGameUI
             if (flashOn) _whiteFlashOverlay.color = new Color(1f, 1f, 1f, flashAlpha);
         }
 
+        // 그리드 백드롭은 배경이 밝아질수록 같이 진해진다.
+        // 빈 셀이 밝은 유리라 바닥이 어두워야 읽힌다 — 배경이 하얘지는 구간에서 고정 알파로는
+        // 유리가 배경에 그대로 묻힌다. 바닥이 배경을 흡수해 주면 격자는 늘 같은 대비를 갖는다.
+        if (_discoGridBackdrop != null)
+        {
+            float bright = Mathf.Max(Mathf.Max(whiteBg, cityWhite),
+                                     SceneBackgroundActive ? DISCO_BACKDROP_SCENE : 0f);
+            float want   = Mathf.Lerp(DISCO_BACKDROP_ALPHA, DISCO_BACKDROP_ALPHA_BRIGHT, bright);
+            if (!Mathf.Approximately(_discoGridBackdrop.color.a, want))
+                _discoGridBackdrop.color = new Color(0f, 0f, 0f, want);
+        }
+
         // 보드 블록 세로 펄스. 값이 지난 프레임과 같으면 64칸을 아예 건드리지 않는다 —
         // 블랙아웃 구간(49~100.1초)에서는 pulseY가 정확히 1로 고정이라 그동안 통째로 쉰다.
         // 그 구간에 새로 놓인 블록도 기본 배율이 1이라 어긋나지 않는다.
@@ -404,15 +416,18 @@ public partial class InGameUI
             PlaceSceneBackground(_driving.transform);
         }
 
-        // 전용 배경이 떠 있는 동안에는 기본 배경/그리드 백드롭을 감춘다.
+        // 전용 배경(도시·드라이빙)이 떠 있는 동안에는 기본 전체 배경을 감춘다.
         // (Unity의 fake-null 체크로 파괴 여부까지 함께 판정됨)
+        //
+        // 그리드 백드롭은 예전에 여기서 같이 껐다. 빈 셀이 반투명 채움이던 시절에는
+        // 검은 판과 겹쳐 탁해졌기 때문이다. 지금 빈 셀은 가장자리만 있는 유리라
+        // 뒤를 거의 다 통과시켜서, 백드롭이 없으면 밝은 도시나 터널 위에서 격자가 사라진다.
+        // 그래서 백드롭은 구간과 무관하게 계속 켜 둔다.
         bool sceneActive = SceneBackgroundActive;
         if (_bgImage != null && _bgImage.enabled == sceneActive)
         {
             _bgImage.enabled = !sceneActive;
-            if (_discoGridBackdrop != null)
-                _discoGridBackdrop.enabled = !sceneActive;
-            RefreshGrid(); // 빈 셀 표현(내곽선 ↔ 채움)을 즉시 갱신
+            RefreshGrid(); // 빈 셀 표현을 즉시 갱신
         }
     }
 
@@ -464,7 +479,7 @@ public partial class InGameUI
         var img = go.AddComponent<Image>();
         img.sprite        = MakeRoundedSprite(120, 120, 32);
         img.type          = Image.Type.Sliced;
-        img.color         = new Color(0f, 0f, 0f, 0.45f);
+        img.color         = new Color(0f, 0f, 0f, DISCO_BACKDROP_ALPHA);
         img.raycastTarget = false;
         _discoGridBackdrop = img;
 
@@ -490,6 +505,13 @@ public partial class InGameUI
         rt.anchorMax    = Vector2.one;
         rt.offsetMin    = Vector2.zero;
         rt.offsetMax    = Vector2.zero;
+
+        // 배경 레이어 바로 위, 보드·점수보다는 아래에 둔다.
+        // 맨 위에 두면 화이트아웃 3초 동안 보드까지 하얗게 덮여 아무것도 안 보인다.
+        // 여기 두면 하얘지는 건 배경뿐이고, 도시가 스폰되는 순간을 가리는 역할은 그대로다
+        // (도시는 이 판 뒤에서 바뀐다).
+        if (_tunnelLayerRt != null)
+            go.transform.SetSiblingIndex(_tunnelLayerRt.GetSiblingIndex() + 1);
     }
 
     void BuildPhotoWarning()
@@ -989,7 +1011,7 @@ public partial class InGameUI
 
             // 멀리(zFar 근처)에서 페이드인. 이후엔 풀 알파.
             float fadeIn = Mathf.InverseLerp(TUNNEL_Z_FAR, TUNNEL_Z_FAR - 1.5f, z);
-            float alpha  = Mathf.Clamp01(fadeIn) * intensity;
+            float alpha  = Mathf.Clamp01(fadeIn) * intensity * TUNNEL_RING_ALPHA;
             Color c      = rainbow ? RainbowAt(z, now) : baseColor;
             _ringImgs[i].color = new Color(c.r, c.g, c.b, alpha);
         }
@@ -998,7 +1020,7 @@ public partial class InGameUI
         // 알록달록 구간에는 터널 끝(zFar)의 색을 따라가 스포크가 모이는 자리와 색이 맞는다.
         if (_spokeImgs != null)
         {
-            float spokeAlpha = 0.55f * intensity;
+            float spokeAlpha = TUNNEL_SPOKE_ALPHA * intensity;
             Color c = rainbow ? RainbowAt(TUNNEL_Z_FAR, now) : baseColor;
             for (int i = 0; i < _spokeImgs.Length; i++)
                 _spokeImgs[i].color = new Color(c.r, c.g, c.b, spokeAlpha);
