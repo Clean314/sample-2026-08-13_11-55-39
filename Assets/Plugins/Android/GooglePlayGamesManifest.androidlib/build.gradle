@@ -1,0 +1,44 @@
+// Play Games 플러그인이 APP_ID 메타데이터와 브리지 액티비티를 담아 두는 설정용 라이브러리다.
+//
+// 네임스페이스를 여기서 정하는 이유:
+// AGP 8부터 AndroidManifest.xml 의 package 속성으로 네임스페이스를 정하는 것이 막혔다.
+// 플러그인이 넣어 둔 package="com.google.example.games.mainlibproj" 를 그대로 두면
+// "Setting the namespace via the package attribute ... is no longer supported" 로 빌드가 깨진다.
+// 그래서 manifest 에서는 package 를 지우고 이름을 이 파일로 옮겼다.
+// (AdMob 쪽 GoogleMobileAdsPlugin.androidlib 도 같은 이유로 같은 처리를 해 두었다)
+//
+// 주의: AndroidManifest.xml 은 "Google Play Games > Setup" 을 실행할 때마다 플러그인이
+// 다시 만든다. 그때 package 속성이 되살아나므로 설정 후 다시 지워야 한다.
+// 이 build.gradle 은 플러그인이 건드리지 않으므로 한 번만 두면 된다.
+//
+// SDK 버전은 Unity 6000.5.6f1 이 다른 androidlib 에 생성하던 값과 맞췄다.
+apply plugin: 'com.android.library'
+
+dependencies {
+    implementation fileTree(dir: 'bin', include: ['*.jar'])
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+}
+
+android {
+    namespace "com.google.example.games.mainlibproj"
+    compileSdk 36
+    buildToolsVersion "36.0.0"
+
+    defaultConfig {
+        minSdk 26
+        targetSdk 31
+    }
+
+    lint {
+        abortOnError false
+    }
+
+    sourceSets {
+        main {
+            manifest.srcFile 'AndroidManifest.xml'
+            res.srcDirs = ['res']
+            assets.srcDirs = ['assets']
+            jniLibs.srcDirs = ['libs']
+        }
+    }
+}

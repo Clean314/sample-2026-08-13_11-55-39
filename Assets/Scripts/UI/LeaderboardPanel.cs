@@ -10,10 +10,9 @@ using UnityEngine.UI;
 /// </summary>
 public class LeaderboardPanel : MonoBehaviour
 {
-    // 순위표 서비스를 아직 붙이지 않았다. 붙이기 전까지는 안내만 띄운다 —
-    // 로그인 화면을 보여 놓고 눌러도 아무 일이 없으면 고장난 것으로 읽힌다.
-    // 서비스를 연결하면 이 값만 false로 바꾸면 아래 화면이 그대로 살아난다.
-    const bool COMING_SOON = true;
+    // 비상용 스위치. true면 순위표 대신 "추후 출시" 안내만 띄우고 화면을 짓지 않는다.
+    // 서비스 쪽에 문제가 생겼을 때, 눌러도 아무 일 없는 로그인 화면을 내보이는 것보다 낫다.
+    const bool COMING_SOON = false;
 
     static readonly string[] MODE_LOC_KEYS = { "mode_normal", "mode_ice", "mode_toggle", "mode_disco" };
     const int ROW_COUNT = 8;      // 한 화면에 보여 줄 줄 수
