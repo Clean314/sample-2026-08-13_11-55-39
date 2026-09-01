@@ -546,6 +546,9 @@ public partial class InGameUI : MonoBehaviour
             // 모든 레이아웃이 끝난 뒤에 제자리를 기록해야 한다
             CollectShakeTargets();
 
+            // 흔들림 대상을 기록한 뒤에 덮는다 — 띠는 같이 흔들리면 안 된다.
+            BuildLetterbox();
+
             // 경고는 맨 마지막에 세워야 다른 레이어들 위로 올라간다(sibling 순서 = 그리는 순서).
             //
             // 이어받은 판이 이미 끝난 판이면 띄우지 않는다. 곧 게임오버 화면이 뜰 판인데
@@ -679,7 +682,7 @@ public partial class InGameUI : MonoBehaviour
         var scaler = go.AddComponent<CanvasScaler>();
         scaler.uiScaleMode          = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution  = new Vector2(1080, 1920);
-        scaler.matchWidthOrHeight   = 1f;
+        scaler.matchWidthOrHeight   = 0f;   // 가로 기준 — 긴 화면에서 판이 잘리지 않게 (CanvasMetrics 참고)
 
         go.AddComponent<GraphicRaycaster>();
         _canvasRt = go.GetComponent<RectTransform>();
@@ -1743,33 +1746,49 @@ public partial class InGameUI : MonoBehaviour
                 // 오프라인이면 광고가 어차피 안 뜨고 보상도 못 받음 → 클릭 자체를 차단.
                 // NetworkChecker.Update가 다음 프레임에 오버레이를 띄워 사용자에게 안내.
                 if (Application.internetReachability == NetworkReachability.NotReachable) return;
-                AdManager.GetOrCreate().ShowRewarded(
-                    onRewarded: () =>
+
+                // 광고가 뜨는 동안 연타되는 것을 막는다.
+                reviveBtn.interactable = false;
+                var reviveLabel = reviveGo.GetComponentInChildren<Text>();
+                string reviveWas = reviveLabel != null ? reviveLabel.text : null;
+
+                AdManager.GetOrCreate().ShowRewarded(outcome =>
+                {
+                    // 광고를 못 튼 것은 우리 사정이다. 점수가 걸린 판을 광고 사정으로
+                    // 뺏으면 화가 나는 게 당연하다 — 그럴 때는 그냥 부활시켜 준다.
+                    //
+                    // 네트워크를 끊어 광고를 회피하는 꼼수를 막지 않는 이유: 부활은
+                    // _reviveUsed 로 한 판에 한 번뿐이라, 회피해도 정직하게 본 사람과
+                    // 부활 횟수가 같다. 아낀 것은 광고 시청 시간뿐이고 점수 이득은 없다.
+                    if (outcome == AdManager.RewardOutcome.Skipped)
                     {
-                        _reviveUsed = true;
+                        // 스스로 닫았다. 판을 이어 주지 않고 버튼만 되살린다.
+                        if (reviveBtn != null) reviveBtn.interactable = true;
+                        return;
+                    }
 
-                        // 부활은 같은 판을 이어가는 것이므로 곡도 끊긴 자리에서 이어 붙인다.
-                        // 다만 바로 켜지 않는다 — 광과민성 경고가 걷힌 뒤에 PhotoWarningRoutine이
-                        // 이어 붙인다. TapeStop이 이미 멈춰 놨지만, 감속이 끝나기 전에 눌렀으면
-                        // 아직 돌고 있을 수 있어서 여기서 확실히 멈춘다.
-                        if (discoMode)
-                        {
-                            BGMManager.Instance?.RestorePlayback();
-                            BGMManager.Instance?.Pause();
-                        }
+                    if (outcome == AdManager.RewardOutcome.Unavailable)
+                        Debug.Log("[InGameUI] 광고를 띄우지 못해 부활만 지급한다.");
 
-                        _gameOverOverlay = null;
-                        Destroy(overlayGo);
-                        _gm.Revive();
+                    _reviveUsed = true;
 
-                        // 번쩍이는 화면으로 곧장 돌아가지 않게 경고를 한 번 더 보여 준다.
-                        if (discoMode) BuildPhotoWarning();
-                    },
-                    onFailed: () =>
+                    // 부활은 같은 판을 이어가는 것이므로 곡도 끊긴 자리에서 이어 붙인다.
+                    // 다만 바로 켜지 않는다 — 광과민성 경고가 걷힌 뒤에 PhotoWarningRoutine이
+                    // 이어 붙인다. TapeStop이 이미 멈춰 놨지만, 감속이 끝나기 전에 눌렀으면
+                    // 아직 돌고 있을 수 있어서 여기서 확실히 멈춘다.
+                    if (discoMode)
                     {
-                        // 광고 준비 안 됨을 사용자에게 알림
-                        Debug.Log("[InGameUI] Rewarded ad not available.");
-                    });
+                        BGMManager.Instance?.RestorePlayback();
+                        BGMManager.Instance?.Pause();
+                    }
+
+                    _gameOverOverlay = null;
+                    Destroy(overlayGo);
+                    _gm.Revive();
+
+                    // 번쩍이는 화면으로 곧장 돌아가지 않게 경고를 한 번 더 보여 준다.
+                    if (discoMode) BuildPhotoWarning();
+                });
             });
         }
 
@@ -1961,6 +1980,18 @@ public partial class InGameUI : MonoBehaviour
         });
 
         watchBtn.onClick.AddListener(() => onDeclined?.Invoke());
+    }
+
+    /// <summary>
+    /// 버튼 글자를 잠깐 다른 문구로 바꿨다가 되돌린다. 광고가 아직 안 실려서 눌러도
+    /// 아무 일이 없는 순간에, 왜 안 되는지 그 자리에서 알려 주려는 것이다.
+    /// </summary>
+    IEnumerator FlashLabel(Text label, string message, string restore)
+    {
+        if (label == null) yield break;
+        label.text = message;
+        yield return new WaitForSeconds(1.6f);
+        if (label != null) label.text = restore;
     }
 
     void AddText(Transform parent, string txt, int size, Color color,

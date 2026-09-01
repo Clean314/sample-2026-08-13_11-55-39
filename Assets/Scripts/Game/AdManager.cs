@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using UnityEngine;
 
 #if UNITY_ANDROID || UNITY_IOS
@@ -11,6 +12,14 @@ using GoogleMobileAds.Api;
 /// </summary>
 public class AdManager : MonoBehaviour
 {
+    /// <summary>보상형 광고를 보여 준 결과. 실패의 책임이 누구에게 있는지로 나눈다.</summary>
+    public enum RewardOutcome
+    {
+        Rewarded,      // 끝까지 봤다 — 보상 지급
+        Skipped,       // 스스로 닫았다 — 지급 안 함
+        Unavailable,   // 광고를 아예 못 띄웠다 — 우리 사정이므로 부르는 쪽이 판단
+    }
+
     public static AdManager Instance { get; private set; }
 
     // ── 광고 단위 ID ──────────────────────────────────────────────
@@ -55,6 +64,19 @@ public class AdManager : MonoBehaviour
         DontDestroyOnLoad(gameObject);
 
 #if UNITY_ANDROID || UNITY_IOS
+        // 광고 콜백은 기본적으로 백그라운드 스레드에서 온다. 그 스레드에서 Destroy 나
+        // UI 조작 같은 유니티 API 를 부르면 예외가 나고, 보상을 받았는데도 화면이
+        // 그대로 남는다(부활 버튼을 다시 눌러야 했던 원인). 초기화 전에 켜 둬야 한다.
+        //
+        // 실제로 기기 로그에 이렇게 찍혔다:
+        //   UnityException: GetInt can only be called from the main thread.
+        //     RemoveAds.get_Owned  ←  AdManager.LoadInterstitial  ←  AndroidJavaProxy.Invoke
+        //
+        // SDK 11.0.0 CHANGELOG 는 이 속성을 obsolete 로 적고 MobileAdsEventExecutor.ExecuteInUpdate
+        // 를 권한다. 다만 그쪽은 콜백마다 일일이 감싸야 해서 하나만 빠뜨려도 같은 버그가 돌아온다.
+        // 지금은 전역으로 한 번에 막는 이쪽을 쓴다. 속성이 실제로 제거되면 그때 옮긴다.
+        MobileAds.RaiseAdEventsOnUnityMainThread = true;
+
         MobileAds.Initialize(_ =>
         {
             Debug.Log("[AdManager] MobileAds initialized.");
@@ -106,6 +128,19 @@ public class AdManager : MonoBehaviour
     // ═══════════════════════════════════════════════════════════
 
 #if UNITY_ANDROID || UNITY_IOS
+    // 로드 실패는 대개 일시적이다 — 앱을 켠 직후 네트워크가 아직 안 붙은 경우가 흔하다.
+    // 실패하고 끝내면 그 판 내내 광고 버튼이 죽어 있으므로, 스스로 몇 번 더 받아 본다.
+    const float AD_RETRY_DELAY = 8f;
+    const int   AD_RETRY_MAX   = 5;
+    int _rewardedRetries;
+    int _interRetries;
+
+    IEnumerator RetryLoadAfter(float sec, Action load)
+    {
+        yield return new WaitForSeconds(sec);
+        load();
+    }
+
     void LoadRewardedAd()
     {
         _rewardedReady = false;
@@ -114,10 +149,13 @@ public class AdManager : MonoBehaviour
             if (err != null)
             {
                 Debug.LogWarning($"[AdManager] Rewarded load failed: {err.GetMessage()}");
+                if (_rewardedRetries++ < AD_RETRY_MAX)
+                    StartCoroutine(RetryLoadAfter(AD_RETRY_DELAY, LoadRewardedAd));
                 return;
             }
             _rewardedAd    = ad;
             _rewardedReady = true;
+            _rewardedRetries = 0;
             Debug.Log("[AdManager] Rewarded ad loaded.");
 
             // 광고 종료 후 다음 광고 미리 로드
@@ -141,36 +179,46 @@ public class AdManager : MonoBehaviour
     }
 
     /// <summary>
-    /// 보상형 광고를 표시합니다.
-    /// <para>onRewarded : 광고를 끝까지 시청한 경우 호출됩니다.</para>
-    /// <para>onFailed   : 광고를 건너뛰거나 로드되지 않은 경우 호출됩니다.</para>
+    /// 보상형 광고를 보여 주고 결과를 알린다.
+    ///
+    /// 결과를 셋으로 나눈 이유: 부르는 쪽이 "보상을 줄지"를 판단하려면 실패의 종류를
+    /// 알아야 한다. 사용자가 스스로 닫은 것과, 광고를 아예 못 튼 것은 책임이 다르다.
     /// </summary>
-    public void ShowRewarded(Action onRewarded, Action onFailed = null)
+    public void ShowRewarded(Action<RewardOutcome> done)
     {
 #if UNITY_ANDROID || UNITY_IOS
         if (!IsRewardedReady)
         {
             Debug.LogWarning("[AdManager] Rewarded ad not ready.");
-            onFailed?.Invoke();
+            LoadRewardedAd();   // 전면 광고와 같게 — 다음 기회를 위해 다시 받아 둔다
+            done?.Invoke(RewardOutcome.Unavailable);
             return;
         }
 
         bool rewarded = false;
+        bool reported = false;
+        void Report(RewardOutcome outcome)
+        {
+            if (reported) return;   // 보상·닫힘·실패가 겹쳐 들어와도 한 번만
+            reported = true;
+            done?.Invoke(outcome);
+        }
+
+        // 닫힘·실패 처리를 Show() 보다 먼저 건다. 뒤에 걸면 그 사이에 끝나는 경우를 놓친다.
+        _rewardedAd.OnAdFullScreenContentClosed += () =>
+            Report(rewarded ? RewardOutcome.Rewarded : RewardOutcome.Skipped);
+        _rewardedAd.OnAdFullScreenContentFailed += _ => Report(RewardOutcome.Unavailable);
 
         _rewardedAd.Show(reward =>
         {
+            // 보상은 이 시점에 이미 확정이다. 닫힘을 기다리지 않는다.
             rewarded = true;
-            onRewarded?.Invoke();   // Unity SDK v8+는 메인 스레드에서 호출됨
+            Report(RewardOutcome.Rewarded);   // RaiseAdEventsOnUnityMainThread 덕에 메인 스레드다
         });
-
-        _rewardedAd.OnAdFullScreenContentClosed += () =>
-        {
-            if (!rewarded) onFailed?.Invoke();
-        };
 #else
         // 에디터 / 미지원 플랫폼: 광고 없이 즉시 보상 지급 (테스트용)
         Debug.Log("[AdManager] Editor: rewarded ad simulated.");
-        onRewarded?.Invoke();
+        done?.Invoke(RewardOutcome.Rewarded);
 #endif
     }
 
@@ -191,9 +239,12 @@ public class AdManager : MonoBehaviour
             if (err != null)
             {
                 Debug.LogWarning($"[AdManager] Interstitial load failed: {err.GetMessage()}");
+                if (_interRetries++ < AD_RETRY_MAX)
+                    StartCoroutine(RetryLoadAfter(AD_RETRY_DELAY, LoadInterstitial));
                 return;
             }
             _interstitial = ad;
+            _interRetries = 0;
             Debug.Log("[AdManager] Interstitial loaded.");
         });
     }
