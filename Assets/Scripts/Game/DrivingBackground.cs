@@ -19,8 +19,8 @@ using System.Collections.Generic;
 /// 도시 배경과 달리 이미지 에셋을 쓰지 않고 전부 절차적으로 그린다. city_light.png는 하늘이
 /// 불투명한 남색이라 검게 틴트하면 실루엣이 아니라 사각형이 되고, 이음매 없이 반복 스크롤할 수도 없다.
 ///
-/// 캔버스는 referenceResolution 1080×1920 / matchHeight=1 이라 세로는 항상 1920 단위이고
-/// 가로만 화면 비율에 따라 변한다. STRIP_W는 그 가로폭보다 넉넉해야 건물이 끊기지 않는다.
+/// 캔버스는 referenceResolution 1080×1920 / matchWidth=0 이라 가로는 항상 1080 단위이고
+/// 세로만 화면 비율에 따라 변한다. STRIP_W는 그 1080 보다 넉넉해야 건물이 끊기지 않는다.
 /// </summary>
 public class DrivingBackground : MonoBehaviour
 {

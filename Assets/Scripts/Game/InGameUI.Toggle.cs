@@ -28,7 +28,7 @@ public partial class InGameUI
     const int   ROOM_BAKE_W = 480;
     const int   ROOM_BAKE_H = 854;
     const float ROOM_REF_W  = 1080f;   // CanvasScaler.referenceResolution
-    const float ROOM_REF_H  = 1920f;
+    // 세로는 화면 비율에 따라 달라지므로 상수로 둘 수 없다 — CanvasMetrics.Height 를 쓴다.
 
     // 무늬. 뒷벽 깊이를 초점거리와 같게 뒀으므로 뒷벽에서는 월드 단위가 곧 화면 픽셀이다 —
     // 즉 TOGGLE_TILE 이 뒷벽에서 보이는 간격이고, 옆면으로 갈수록 원근이 늘리고 줄인다.
@@ -227,7 +227,8 @@ public partial class InGameUI
     {
         const float D = ROOM_FOCAL;
         float hx = ROOM_BACK_SCALE * ROOM_REF_W * 0.5f;
-        float hy = ROOM_BACK_SCALE * ROOM_REF_H * 0.5f;
+        float refH = CanvasMetrics.Height;
+        float hy = ROOM_BACK_SCALE * refH * 0.5f;
 
         // 그라데이션의 양 끝. 화면 테두리가 닿는 깊이가 가장 가깝고, 뒷벽 구석이 가장 멀다.
         float dNear = D * ROOM_BACK_SCALE;
@@ -248,7 +249,7 @@ public partial class InGameUI
                 // 굽는 좌표를 기준 해상도의 화면 좌표로. Texture2D 는 y=0 이 아래쪽이고
                 // 화면도 아래가 -y 라 그대로 두면 위아래가 맞는다.
                 float sx = ((x + 0.5f) / ROOM_BAKE_W - 0.5f) * ROOM_REF_W;
-                float sy = ((y + 0.5f) / ROOM_BAKE_H - 0.5f) * ROOM_REF_H;
+                float sy = ((y + 0.5f) / ROOM_BAKE_H - 0.5f) * refH;
 
                 // 광선 (sx, sy, f) 가 다섯 면 중 어디에 먼저 닿는가. t 가 작을수록 가깝다.
                 float t    = D / ROOM_FOCAL;   // 뒷벽

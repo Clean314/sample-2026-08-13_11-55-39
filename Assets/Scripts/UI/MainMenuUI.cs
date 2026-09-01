@@ -74,7 +74,7 @@ public class MainMenuUI : MonoBehaviour
         var scaler = canvasObj.AddComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1080, 1920);
-        scaler.matchWidthOrHeight = 1f;
+        scaler.matchWidthOrHeight = 0f;   // 가로 기준 — 긴 화면에서 판이 잘리지 않게 (CanvasMetrics 참고)
 
         canvasObj.AddComponent<GraphicRaycaster>();
 
@@ -87,7 +87,13 @@ public class MainMenuUI : MonoBehaviour
 
         BGMManager.GetOrCreate();
         NetworkChecker.GetOrCreate();
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        // 개발 빌드에는 화면 아래에 디버그 점수 패널이 붙는다. 배너가 그 위를 덮어 입력이
+        // 막히므로 메인 메뉴에서는 내려 둔다. 인게임 배너와 출시 빌드는 그대로다.
+        AdManager.GetOrCreate().HideBanner();
+#else
         AdManager.GetOrCreate().ShowBanner();
+#endif
 
         CreateBackground(canvasObj);
         CreateLogo(canvasObj);
@@ -756,6 +762,9 @@ public class MainMenuUI : MonoBehaviour
             {
                 PlayerPrefs.SetInt($"m{_currentMode}_HighScore", val);
                 PlayerPrefs.Save();
+                // 숫자만 바꾸면 순위표 제출 경로를 시험할 수 없다. 실제 판을 이겼을 때와
+                // 같은 자리를 지나가도록 여기서도 올린다.
+                Leaderboards.ReportHighScore(_currentMode, val);
                 UpdateModeDisplay();
             }
         });

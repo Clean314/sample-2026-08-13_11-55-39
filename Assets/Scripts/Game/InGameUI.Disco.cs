@@ -75,8 +75,11 @@ public partial class InGameUI
 
     void BuildDiscoBall()
     {
-        const int cells = DISCO_ROWS * DISCO_COLS;
-        const int total = cells * DISCO_SUBS;
+        // 디스코 연출은 설계 비율(1920) 안에서만 그린다. 남는 위아래는 BuildLetterbox 가
+        // 검게 덮는다 — 화면에 맞춰 늘리면 조명 간격이 벌어져 판과 따로 놀았다.
+        int rows  = DISCO_ROWS;
+        int cells = rows * DISCO_COLS;
+        int total = cells * DISCO_SUBS;
 
         _spotImgs     = new DiscoTile[total];
         _spotRts      = new RectTransform[total];
@@ -105,10 +108,10 @@ public partial class InGameUI
         var rng = new System.Random(20260425);
 
         int idx = 0;
-        for (int r = 0; r < DISCO_ROWS; r++)
+        for (int r = 0; r < rows; r++)
         {
-            // 행 Y: 화면 전체를 균등 분할 (어긋남 없음)
-            float rowY = -960f + 1920f * (r + 0.5f) / DISCO_ROWS;
+            // 행 Y: 설계 높이를 균등 분할 (어긋남 없음)
+            float rowY = -CanvasMetrics.REF_H * 0.5f + CanvasMetrics.REF_H * (r + 0.5f) / rows;
 
             for (int c = 0; c < DISCO_COLS; c++)
             {
@@ -512,6 +515,38 @@ public partial class InGameUI
         // (도시는 이 판 뒤에서 바뀐다).
         if (_tunnelLayerRt != null)
             go.transform.SetSiblingIndex(_tunnelLayerRt.GetSiblingIndex() + 1);
+    }
+
+    /// <summary>
+    /// 디스코 연출을 설계 비율(1080x1920) 안에 가두고, 남는 위아래를 검게 덮는다.
+    /// 긴 화면에 맞춰 늘리면 조명과 격자 간격이 벌어져 판과 따로 놀았다. 영화처럼
+    /// 띠를 두는 편이 원래 그림을 그대로 지킨다.
+    /// </summary>
+    void BuildLetterbox()
+    {
+        float bar = (CanvasMetrics.Height - CanvasMetrics.REF_H) * 0.5f;
+        if (bar <= 1f) return;   // 16:9 화면이면 덮을 자리가 없다
+
+        AddBar("LetterboxTop",    1f, bar);
+        AddBar("LetterboxBottom", 0f, bar);
+
+        void AddBar(string name, float anchorY, float h)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(_canvas.transform, false);
+            go.transform.SetAsLastSibling();
+
+            var img = go.AddComponent<Image>();
+            img.color         = Color.black;
+            img.raycastTarget = false;   // 띠가 입력을 먹으면 안 된다
+
+            var rt = go.GetComponent<RectTransform>();
+            rt.anchorMin        = new Vector2(0f, anchorY);
+            rt.anchorMax        = new Vector2(1f, anchorY);
+            rt.pivot            = new Vector2(0.5f, anchorY);
+            rt.sizeDelta        = new Vector2(0f, h);
+            rt.anchoredPosition = Vector2.zero;
+        }
     }
 
     void BuildPhotoWarning()

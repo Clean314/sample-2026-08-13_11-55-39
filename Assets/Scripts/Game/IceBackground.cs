@@ -258,7 +258,7 @@ public class IceBackground : MonoBehaviour
     /// </summary>
     void AddWater()
     {
-        float h = WATER_LINE_Y + 960f;   // 수면에서 화면 밑까지
+        float h = WATER_LINE_Y + CanvasMetrics.HalfHeight;   // 수면에서 화면 밑까지
         if (h <= 1f) return;             // 수면을 화면 밖으로 내리면 그릴 게 없다
 
         var go = new GameObject("Water");
@@ -342,11 +342,12 @@ public class IceBackground : MonoBehaviour
         tex.wrapMode   = TextureWrapMode.Clamp;   // 없으면 위아래 끝이 반대쪽 색을 물어 온다
 
         var px = new Color32[h];
+        float half = CanvasMetrics.HalfHeight;
         for (int y = 0; y < h; y++)
         {
-            // 캔버스 좌표(위가 +960, 아래가 -960)로 되돌려서 수평선까지의 비율을 잡는다.
-            float cy = -960f + 1920f * (y / (h - 1f));
-            float t  = Mathf.Clamp01((960f - cy) / (960f - SKY_HORIZON_Y));
+            // 캔버스 좌표(위가 +half, 아래가 -half)로 되돌려서 수평선까지의 비율을 잡는다.
+            float cy = -half + CanvasMetrics.Height * (y / (h - 1f));
+            float t  = Mathf.Clamp01((half - cy) / (half - SKY_HORIZON_Y));
             t = t * t * (3f - 2f * t);   // 선형이면 중간에 띠가 보인다
             px[y] = Color32.Lerp(SKY, SKY_HORIZON, t);
         }

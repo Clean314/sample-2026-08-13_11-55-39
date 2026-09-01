@@ -72,7 +72,7 @@ public class NetworkChecker : MonoBehaviour
         var scaler = canvasGo.AddComponent<CanvasScaler>();
         scaler.uiScaleMode         = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1080, 1920);
-        scaler.matchWidthOrHeight  = 1f;
+        scaler.matchWidthOrHeight  = 0f;   // 가로 기준 — 긴 화면에서 판이 잘리지 않게 (CanvasMetrics 참고)
 
         canvasGo.AddComponent<GraphicRaycaster>();
 
