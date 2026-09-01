@@ -187,11 +187,16 @@ public class LeaderboardPanel : MonoBehaviour
             }
 
             _emptyText.text = "";
-            int n = Mathf.Min(entries.Length, ROW_COUNT);
+            // 상위권 밖이면 내 기록이 8줄 안에 안 들어온다. 그럴 때는 마지막 줄을 내 기록
+            // 자리로 내준다 — 애초에 내 점수를 확인하러 여는 화면이기 때문이다.
+            int n      = Mathf.Min(entries.Length, ROW_COUNT);
+            int selfAt = System.Array.FindIndex(entries, x => x.isSelf);
+            bool selfOut = selfAt >= n;
             for (int i = 0; i < n; i++)
             {
-                var e = entries[i];
-                _rowRank[i].text  = e.rank.ToString();
+                var e = (selfOut && i == n - 1) ? entries[selfAt] : entries[i];
+                // 서버가 순위를 안 매기면 -1 이 온다(미게시 상태 등). 그대로 찍으면 오해를 산다.
+                _rowRank[i].text  = e.rank > 0 ? e.rank.ToString() : "-";
                 _rowName[i].text  = e.name;
                 _rowScore[i].text = e.score.ToString("N0");
 

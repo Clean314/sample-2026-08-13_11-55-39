@@ -117,7 +117,12 @@ public class PlayGamesLeaderboard : ILeaderboardService
     public void LoadTop(int mode, int count, Action<LeaderboardEntry[]> done)
     {
         string id = BoardId(mode);
-        if (id == null || !IsSignedIn) { done?.Invoke(Array.Empty<LeaderboardEntry>()); return; }
+        if (id == null || !IsSignedIn)
+        {
+            Debug.Log($"[PGS] 순위표 읽기 건너뜀 (mode {mode}, id {(id == null ? "없음" : "있음")}, 로그인 {IsSignedIn})");
+            done?.Invoke(Array.Empty<LeaderboardEntry>());
+            return;
+        }
 
         PlayGamesPlatform.Instance.LoadScores(
             id,
@@ -129,13 +134,41 @@ public class PlayGamesLeaderboard : ILeaderboardService
             {
                 if (!data.Valid || data.Scores == null || data.Scores.Length == 0)
                 {
-                    if (!data.Valid) Debug.LogWarning($"[PGS] 순위표 읽기 실패: {data.Status}");
+                    // 읽기가 실패한 것과 성공했는데 비어 있는 것을 로그에서 구분할 수 있어야 한다.
+                    if (!data.Valid) Debug.LogWarning($"[PGS] 순위표 읽기 실패 (mode {mode}): {data.Status}");
+                    // 공개 목록이 비어도 내 기록은 PlayerScore 로 따로 온다. 아직 목록에
+                    // 실리지 않았을 뿐 점수가 올라가 있으면, 그것만이라도 보여 주는 게 맞다.
+                    if (data.PlayerScore != null)
+                    {
+                        Debug.Log($"[PGS] 공개 목록은 비었지만 내 기록 있음 (mode {mode}, {data.PlayerScore.value})");
+                        ResolveNames(new[] { data.PlayerScore }, done);
+                        return;
+                    }
+
+                    Debug.Log($"[PGS] 순위표 비어 있음 (mode {mode}, 상태 {data.Status})");
                     done?.Invoke(Array.Empty<LeaderboardEntry>());
                     return;
                 }
 
-                ResolveNames(data.Scores, done);
+                Debug.Log($"[PGS] 순위표 읽음 (mode {mode}, {data.Scores.Length}줄)");
+                ResolveNames(WithOwnScore(data), done);
             });
+    }
+
+    /// <summary>
+    /// 상위 목록에 내 기록이 없으면 뒤에 붙인다. 순위가 밀리면 목록에 안 실리는데,
+    /// 그러면 점수가 올라갔는지 화면에서 확인할 길이 없다.
+    /// </summary>
+    static IScore[] WithOwnScore(LeaderboardScoreData data)
+    {
+        var mine = data.PlayerScore;
+        if (mine == null) return data.Scores;
+
+        foreach (var s in data.Scores)
+            if (s.userID == mine.userID) return data.Scores;
+
+        var list = new List<IScore>(data.Scores) { mine };
+        return list.ToArray();
     }
 
     /// <summary>
