@@ -255,6 +255,7 @@ public class GameManager : MonoBehaviour
             for (int c = 0; c < SIZE; c++)
             {
                 int v = Board[r, c];
+                if (v == RAINBOW_BLOCK_VAL) { clearable = false; break; }   // 무지개가 낀 줄은 안 친다
                 if (toggleMode ? v != activeVal : v == 0) { clearable = false; break; }
             }
             if (clearable) rows.Add(r);
@@ -265,13 +266,17 @@ public class GameManager : MonoBehaviour
             for (int r = 0; r < SIZE; r++)
             {
                 int v = Board[r, c];
+                if (v == RAINBOW_BLOCK_VAL) { clearable = false; break; }   // 무지개가 낀 줄은 안 친다
                 if (toggleMode ? v != activeVal : v == 0) { clearable = false; break; }
             }
             if (clearable) cols.Add(c);
         }
 
-        // 무지개 블럭은 줄 클리어로 없어지지 않는다 — 탭했을 때만 사라진다.
-        // (줄을 채우는 데는 쓰이므로 클리어 판정에는 그대로 포함된다.)
+        // 무지개 블럭은 탭으로만 사라진다. 위에서 무지개가 낀 줄은 아예 클리어로 치지
+        // 않으므로 여기 걸릴 일은 없지만, 규칙을 코드에도 남겨 둔다.
+        //
+        // 예전에는 무지개도 줄을 "채운 것"으로 쳤다. 그러면 클리어 연출은 나가는데
+        // 블럭은 남아서, 사라졌다는 화면과 실제 판이 어긋났다.
         foreach (int r in rows) for (int c = 0; c < SIZE; c++) if (Board[r, c] != RAINBOW_BLOCK_VAL) Board[r, c] = 0;
         foreach (int c in cols) for (int r = 0; r < SIZE; r++) if (Board[r, c] != RAINBOW_BLOCK_VAL) Board[r, c] = 0;
 
