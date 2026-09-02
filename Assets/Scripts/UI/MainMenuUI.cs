@@ -33,6 +33,15 @@ public class MainMenuUI : MonoBehaviour
     // 어긋나면 걸쳐 보이던 그림과 밀려오는 그림이 따로 논다.
     const float SLIDE_DIST = 520f;
     const float PEEK_ALPHA = 0.16f;
+
+    // 결제 버튼 두 개가 한 화면에 같이 뜰 수 있어(광고 제거는 늘 있고, 해금은 잠긴
+    // 모드에서 시작 버튼 자리를 대신한다) 색을 달리해 서로 헷갈리지 않게 한다.
+    //
+    // 문구도 "무엇을 사는지"를 그대로 적는다. 나중에 모드별 해금 상품이 생겨도
+    // "모든 모드"라는 말이 남아 있으면 어느 쪽인지 헷갈리지 않는다.
+    static readonly Color BUY_TEXT    = new Color(1f,     0.85f,  0.3f);   // 광고 제거
+    static readonly Color UNLOCK_TEXT = new Color(0.35f,  0.78f,  1f);     // 모든 모드 해금
+    static readonly Color START_TEXT  = new Color(0.886f, 0.910f, 0.941f);
     GameObject      _lockOverlay;
     Text            _modeNameText;   // 아이콘 아래: 언락 상태면 모드 이름, 락이면 해금 조건
     Button          _startBtn;
@@ -113,13 +122,13 @@ public class MainMenuUI : MonoBehaviour
 
         _startBtn   = CreateRoundedButton(canvasObj, loc.Get("start"),
                           anchorY: 0.24f,
-                          textColor: new Color(0.886f, 0.910f, 0.941f),
+                          textColor: START_TEXT,
                           out _startBtnText);
         _startBtnCG = _startBtn.gameObject.AddComponent<CanvasGroup>();
 
         var noAdsBtn = CreateRoundedButton(canvasObj, loc.Get("no_ads"),
                            anchorY: 0.15f,
-                           textColor: new Color(1f, 0.85f, 0.3f),
+                           textColor: BUY_TEXT,
                            out _noAdsBtnText);
 
         _startBtn.onClick.AddListener(OnStartClicked);
@@ -139,7 +148,11 @@ public class MainMenuUI : MonoBehaviour
 
     void OnStartClicked()
     {
-        if (!IsModeUnlocked(_currentMode)) return;
+        // 잠긴 모드에서는 같은 버튼이 해금 구매를 맡는다. 자리를 하나 더 만들지 않은 것은,
+        // 둘이 동시에 필요한 상황이 없기 때문이다 — 잠겨 있으면 시작할 수 없고, 열려
+        // 있으면 살 이유가 없다.
+        if (!IsModeUnlocked(_currentMode)) { BuyUnlockAll(); return; }
+
         // 오버레이로도 막지만, "WiFi off → 같은 프레임에 탭" race를 막기 위해 클릭 시점에 한 번 더 검사.
         // 오프라인이면 그냥 무시 — NetworkChecker.Update가 다음 프레임에 오버레이를 띄움.
         if (Application.internetReachability == NetworkReachability.NotReachable) return;
@@ -147,9 +160,31 @@ public class MainMenuUI : MonoBehaviour
         SceneManager.LoadScene("InGame");
     }
 
+
+    /// <summary>
+    /// 모든 모드 해금을 산다. 성공하면 화면을 다시 그려 잠금이 걷힌 상태로 바뀐다.
+    /// 실패하면(창을 닫았거나 스토어가 거절) 그대로 둔다 — 실패 문구를 띄우기보다
+    /// 버튼이 그 자리에 남아 있는 편이 다시 시도하기 쉽다.
+    /// </summary>
+    void BuyUnlockAll()
+    {
+        if (!UnlockAll.StoreReady) return;   // 팔 수 없으면 버튼이 애초에 죽어 있다
+
+        UnlockAll.Purchase(
+            onSuccess: () =>
+            {
+                if (this == null) return;   // 결제 중에 씬을 떠났을 수 있다
+                UpdateModeDisplay();
+            },
+            onFailed: () => Debug.Log("[MainMenu] 해금 구매가 완료되지 않았다."));
+    }
     bool IsModeUnlocked(int idx)
     {
         if (IsComingSoon(idx)) return false;
+
+        // 해금 상품을 산 사람은 점수 조건을 건너뛴다.
+        if (UnlockAll.Owned) return true;
+
         return PlayerPrefs.GetInt($"m{MODE_UNLOCK_FROM[idx]}_HighScore", 0) >= MODE_UNLOCK_SCORE[idx];
     }
 
@@ -596,11 +631,25 @@ public class MainMenuUI : MonoBehaviour
         if (_modeNameText != null)
             _modeNameText.text = unlocked ? loc.Get(MODE_LOC_KEYS[_currentMode]) : UnlockDescription(_currentMode);
 
+        // 잠긴 모드에서는 시작 버튼 자리를 해금 구매가 대신한다. 죽어 있는 버튼으로
+        // 못 하는 이유만 보여 주는 것보다, 지금 할 수 있는 선택을 주는 편이 낫다.
+        // 팔 수 없는 상태(스토어 미연결)면 예전처럼 흐릿하게 잠근다.
+        bool offerUnlock = !unlocked && UnlockAll.StoreReady;
+        bool btnLive     = unlocked || offerUnlock;
+
+        if (_startBtnText != null)
+        {
+            // 별표는 "특별한 선택지"라는 뜻으로 흔히 읽히고, 이모지와 달리 어느 폰트에서나
+            // 같은 모양으로 나온다.
+            _startBtnText.text  = offerUnlock ? "★ " + loc.Get("unlock_all") : loc.Get("start");
+            _startBtnText.color = offerUnlock ? UNLOCK_TEXT : START_TEXT;
+        }
+
         if (_startBtnCG != null)
         {
-            _startBtnCG.alpha          = unlocked ? 1f : 0.4f;
-            _startBtnCG.interactable   = unlocked;
-            _startBtnCG.blocksRaycasts = unlocked;
+            _startBtnCG.alpha          = btnLive ? 1f : 0.4f;
+            _startBtnCG.interactable   = btnLive;
+            _startBtnCG.blocksRaycasts = btnLive;
         }
 
         // 디버그 패널: 현재 보고 있는 모드의 점수 표시
@@ -801,7 +850,7 @@ public class MainMenuUI : MonoBehaviour
         panelRt.anchorMax        = new Vector2(0.5f, 0f);
         panelRt.pivot            = new Vector2(0.5f, 0f);
         panelRt.anchoredPosition = new Vector2(0, 18);
-        panelRt.sizeDelta        = new Vector2(700, 140);
+        panelRt.sizeDelta        = new Vector2(700, 145);
 
         // 상단 레이블: "DEBUG 최고점수:  [모드이름]"
         var labelObj = new GameObject("Label");
@@ -874,6 +923,45 @@ public class MainMenuUI : MonoBehaviour
         _debugField.textComponent = inTxt;
         _debugField.placeholder   = ph;
 
+
+        // 구매 초기화 — 에디터·개발 빌드에서 결제는 즉시 성립되고 PlayerPrefs 에 남는다.
+        // 한 번 사고 나면 제안 화면과 잠금 화면을 다시 볼 수 없어 시험이 막힌다.
+        var revokeObj = new GameObject("RevokeBtn");
+        revokeObj.transform.SetParent(panel.transform, false);
+
+        var revokeImg = revokeObj.AddComponent<Image>();
+        revokeImg.color = new Color(0.55f, 0.25f, 0.30f);
+
+        var revokeBtn = revokeObj.AddComponent<Button>();
+        var revokeRt  = revokeObj.GetComponent<RectTransform>();
+        revokeRt.anchorMin        = new Vector2(0f, 0f);
+        revokeRt.anchorMax        = new Vector2(0f, 0f);
+        revokeRt.pivot            = new Vector2(0f, 0f);
+        revokeRt.anchoredPosition = new Vector2(530, 75);
+        revokeRt.sizeDelta        = new Vector2(170, 60);
+
+        var revokeTxtObj = new GameObject("Label");
+        revokeTxtObj.transform.SetParent(revokeObj.transform, false);
+        var revokeTxt = revokeTxtObj.AddComponent<Text>();
+        revokeTxt.text      = "구매 초기화";
+        revokeTxt.font      = Font4();
+        revokeTxt.fontSize  = 26;
+        revokeTxt.alignment = TextAnchor.MiddleCenter;
+        revokeTxt.color     = Color.white;
+
+        var revokeTxtRt = revokeTxtObj.GetComponent<RectTransform>();
+        revokeTxtRt.anchorMin = Vector2.zero;
+        revokeTxtRt.anchorMax = Vector2.one;
+        revokeTxtRt.offsetMin = Vector2.zero;
+        revokeTxtRt.offsetMax = Vector2.zero;
+
+        revokeBtn.onClick.AddListener(() =>
+        {
+            RemoveAds.DebugRevoke();
+            UnlockAll.DebugRevoke();
+            Debug.Log("[MainMenu] 구매 상태를 초기화했다.");
+            UpdateModeDisplay();
+        });
         // 설정 버튼
         var btnObj = new GameObject("SetBtn");
         btnObj.transform.SetParent(panel.transform, false);

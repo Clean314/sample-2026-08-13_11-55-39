@@ -35,6 +35,9 @@ public class LocalizationManager
 
         // ── 잠금 해제 조건 (string.Format: {0}=모드명, {1}=점수) ──
         { "unlock_fmt",    new[] { "{0}모드 최고 점수\n{1}점 이상", "{0} mode high score\n{1}+" } },
+        // 잠긴 모드에서 시작 버튼 자리를 대신한다 — 못 하는 이유만 보여 주는 것보다
+        // 지금 할 수 있는 선택을 주는 편이 낫다.
+        { "unlock_all",    new[] { "모든 모드 해금",      "Unlock All Modes" } },
 
         // ── 디버그 패널 ────────────────────────────────────────────
         { "debug_label",   new[] { "DEBUG 최고점수:",   "DEBUG High Score:" } },
