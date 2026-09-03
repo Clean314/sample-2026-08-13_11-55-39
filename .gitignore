@@ -111,3 +111,8 @@ InitTestScene*.unity*
 
 # Windows Git Bash 에서 /dev/null 리다이렉션이 실수로 만들어 내는 껍데기
 /dev/
+
+# 릴리스 서명 키 — 저장소에 들어가면 누구나 이 앱을 위조해 배포할 수 있다.
+# 파일 자체는 별도 공간(드라이브·USB)에 백업하고, 여기로는 절대 들이지 않는다.
+*.keystore
+*.jks

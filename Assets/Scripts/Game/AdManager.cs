@@ -23,13 +23,18 @@ public class AdManager : MonoBehaviour
     public static AdManager Instance { get; private set; }
 
     // ── 광고 단위 ID ──────────────────────────────────────────────
-    // ※ 현재는 Google 공식 테스트 ID 사용.
-    //   출시 전에 AdMob 콘솔에서 발급받은 실제 ID로 교체하세요.
+    // 안드로이드는 실제 ID다. 개발 중에 이 광고를 직접 누르면 계정이 정지될 수 있으니,
+    // 화면에 뜨는지만 확인하고 클릭하지 않는다.
+    //
+    // APP_ID 는 런타임에서 읽히지 않는다 — SDK 는 매니페스트의 APPLICATION_ID 메타데이터를
+    // 본다(Assets > Google Mobile Ads > Settings 가 거기에 써 넣는다). 여기 값은 대조용이다.
+    //
+    // iOS 는 아직 앱을 등록하지 않아 테스트 ID 그대로 둔다.
 #if UNITY_ANDROID
-    const string APP_ID      = "ca-app-pub-3940256099942544~3347511713"; // 테스트 앱 ID
-    const string BANNER_ID   = "ca-app-pub-3940256099942544/9214589741"; // 적응형 배너 테스트 ID
-    const string REWARDED_ID = "ca-app-pub-3940256099942544/5224354917";
-    const string INTER_ID    = "ca-app-pub-3940256099942544/1033173712"; // 전면 테스트 ID
+    const string APP_ID      = "ca-app-pub-8759899777428361~1010312109";
+    const string BANNER_ID   = "ca-app-pub-8759899777428361/9978522515";
+    const string REWARDED_ID = "ca-app-pub-8759899777428361/6174268559";
+    const string INTER_ID    = "ca-app-pub-8759899777428361/2693455363";
 #elif UNITY_IOS
     const string APP_ID      = "ca-app-pub-3940256099942544~1458002511";
     const string BANNER_ID   = "ca-app-pub-3940256099942544/2435281174"; // 적응형 배너 테스트 ID
