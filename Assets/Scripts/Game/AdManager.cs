@@ -4,6 +4,7 @@ using UnityEngine;
 
 #if UNITY_ANDROID || UNITY_IOS
 using GoogleMobileAds.Api;
+using GoogleMobileAds.Ump.Api;
 #endif
 
 /// <summary>
@@ -52,6 +53,15 @@ public class AdManager : MonoBehaviour
     RewardedAd      _rewardedAd;
     bool            _rewardedReady;
     InterstitialAd  _interstitial;
+
+    // ── 동의(UMP) 진행 상태 ───────────────────────────────────────
+    // UMP 콜백이 어느 스레드로 오는지 SDK 가 보장하지 않는다. 위쪽 Awake 에서 켜는
+    // RaiseAdEventsOnUnityMainThread 는 광고 이벤트에만 걸리고 여기에는 미치지 않는다.
+    // 그래서 콜백 안에서는 플래그만 세우고, 실제 일은 Update 가 메인 스레드에서 한다.
+    volatile bool _consentFlowDone;   // 동의 절차 종료(동의·거부·실패 무관)
+    volatile bool _sdkReady;          // MobileAds.Initialize 완료
+    bool _initStarted;
+    bool _bannerWanted;               // 준비되기 전에 ShowBanner 가 불렸다
 #endif
 
     // ── 생성 ─────────────────────────────────────────────────────
@@ -82,18 +92,115 @@ public class AdManager : MonoBehaviour
         // 지금은 전역으로 한 번에 막는 이쪽을 쓴다. 속성이 실제로 제거되면 그때 옮긴다.
         MobileAds.RaiseAdEventsOnUnityMainThread = true;
 
+        RequestConsent();
+#endif
+    }
+
+#if UNITY_ANDROID || UNITY_IOS
+
+    // ═══════════════════════════════════════════════════════════
+    // 광고 동의 (UMP)
+    // ═══════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// 광고를 요청하기 전에 동의를 받는다.
+    ///
+    /// 유럽경제지역과 영국 이용자에게 광고를 보여 주려면 인증된 동의 관리 플랫폼을 반드시
+    /// 거쳐야 한다. 이 절차 없이 그 지역에 배포하면 광고가 채워지지 않거나 정책 위반이 된다.
+    ///
+    /// 국가별로 분기할 필요는 없다 — UMP 가 이용자 위치를 스스로 판단해서, 동의가 필요 없는
+    /// 곳에서는 아무 화면도 띄우지 않고 조용히 통과시킨다. 그래서 한국만 배포하든 전 세계로
+    /// 넓히든 이 코드는 그대로다.
+    ///
+    /// 어떤 이유로 실패해도 게임은 계속되어야 한다. 광고를 못 받을 뿐이지 판이 막히면 안 된다.
+    /// </summary>
+    void RequestConsent()
+    {
+        var request = new ConsentRequestParameters
+        {
+            // 앱이 만 13세 이상을 대상으로 하므로 false 다.
+            // Play Console 의 "타겟 연령층" 선언과 반드시 같아야 한다.
+            TagForUnderAgeOfConsent = false,
+        };
+
+        ConsentInformation.Update(request, updateError =>
+        {
+            if (updateError != null)
+                Debug.LogWarning($"[AdManager] 동의 정보 갱신 실패: {updateError.Message}");
+
+            // 갱신에 실패해도 양식을 시도해 본다. 이미 받아 둔 동의가 남아 있을 수 있다.
+            ConsentForm.LoadAndShowConsentFormIfRequired(formError =>
+            {
+                if (formError != null)
+                    Debug.LogWarning($"[AdManager] 동의 양식 실패: {formError.Message}");
+
+                _consentFlowDone = true;
+            });
+        });
+    }
+
+    void Update()
+    {
+        if (!_consentFlowDone || _initStarted) return;
+        _initStarted = true;
+
+        // 동의를 거부했거나 절차가 실패한 경우. 광고 없이 게임만 돌아간다.
+        if (!ConsentInformation.CanRequestAds())
+        {
+            Debug.Log("[AdManager] 동의가 없어 광고를 요청하지 않는다.");
+            return;
+        }
+
         MobileAds.Initialize(_ =>
         {
             Debug.Log("[AdManager] MobileAds initialized.");
+            _sdkReady = true;
             LoadRewardedAd();
             LoadInterstitial();
+
+            // 동의를 받는 동안 메뉴가 이미 배너를 요청했을 수 있다.
+            if (_bannerWanted) ShowBanner();
         });
-#endif
     }
+
+#endif
 
     // ═══════════════════════════════════════════════════════════
     // 배너 광고
     // ═══════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// 동의를 나중에 바꿀 수 있는 진입점을 앱이 제공해야 하는지.
+    ///
+    /// 유럽경제지역·영국 이용자에게만 true 가 된다. 그 지역에서는 한 번 정한 뒤에도 마음을
+    /// 바꿀 수 있어야 하므로 버튼을 반드시 띄워야 한다. 반대로 그 밖의 지역에서는 띄우지
+    /// 않는 편이 낫다 — 눌러도 나올 화면이 없어 고장난 버튼으로 보인다.
+    /// </summary>
+    public bool IsPrivacyOptionsRequired
+    {
+        get
+        {
+#if UNITY_ANDROID || UNITY_IOS
+            return _consentFlowDone &&
+                   ConsentInformation.PrivacyOptionsRequirementStatus
+                       == PrivacyOptionsRequirementStatus.Required;
+#else
+            return false;
+#endif
+        }
+    }
+
+    /// <summary>동의 설정 화면을 다시 연다.</summary>
+    public void ShowPrivacyOptions()
+    {
+#if UNITY_ANDROID || UNITY_IOS
+        ConsentForm.ShowPrivacyOptionsForm(error =>
+        {
+            if (error != null)
+                Debug.LogWarning($"[AdManager] 동의 설정 화면 실패: {error.Message}");
+        });
+#endif
+    }
 
     /// <summary>하단에 배너를 표시합니다. 이미 표시 중이면 무시합니다.</summary>
     public void ShowBanner()
@@ -101,6 +208,11 @@ public class AdManager : MonoBehaviour
         // 광고를 제거한 사람에게는 부르는 쪽을 고치지 않아도 안 뜨게 여기서 막는다.
         if (RemoveAds.Owned) return;
 #if UNITY_ANDROID || UNITY_IOS
+        // 동의 절차가 끝나기 전에는 광고를 요청하면 안 된다. 뜻만 기억해 두고,
+        // SDK 가 준비되면 초기화 콜백이 이 함수를 다시 부른다.
+        _bannerWanted = true;
+        if (!_sdkReady) return;
+
         if (_banner != null) { _banner.Show(); return; }
 
         AdSize adaptiveSize = AdSize.GetCurrentOrientationAnchoredAdaptiveBannerAdSizeWithWidth(AdSize.FullWidth);
@@ -115,6 +227,7 @@ public class AdManager : MonoBehaviour
     public void HideBanner()
     {
 #if UNITY_ANDROID || UNITY_IOS
+        _bannerWanted = false;
         _banner?.Hide();
 #endif
     }
@@ -123,6 +236,7 @@ public class AdManager : MonoBehaviour
     public void DestroyBanner()
     {
 #if UNITY_ANDROID || UNITY_IOS
+        _bannerWanted = false;
         _banner?.Destroy();
         _banner = null;
 #endif

@@ -60,6 +60,10 @@ public class MainMenuUI : MonoBehaviour
     Text _debugLabelText;
     Text _debugSetText;
 
+    // 광고 동의 재설정 버튼(유럽경제지역·영국에서만 나타난다)
+    GameObject _adPrivacyBtnObj;
+    Text       _adPrivacyText;
+
     // 디버그 패널: 현재 보고 있는 모드의 점수를 표시/설정
     InputField _debugField;
     Text       _debugModeNameText;
@@ -83,6 +87,7 @@ public class MainMenuUI : MonoBehaviour
         if (_langBtnText   != null) _langBtnText.text   = loc.Get("lang_btn");
         if (_debugLabelText!= null) _debugLabelText.text = loc.Get("debug_label");
         if (_debugSetText  != null) _debugSetText.text  = loc.Get("debug_set");
+        if (_adPrivacyText != null) _adPrivacyText.text = loc.Get("ad_privacy");
         // 잠금 조건 텍스트도 다시 생성
         UpdateModeDisplay();
     }
@@ -143,6 +148,7 @@ public class MainMenuUI : MonoBehaviour
         CreateMuteButton(canvasObj);
         CreateLanguageButton(canvasObj);
         CreateLeaderboardButton(canvasObj);
+        CreateAdPrivacyButton(canvasObj);
         // 점수를 직접 고칠 수 있는 패널이라 정식 빌드에는 들어가면 안 된다.
         // 화면에서 숨기는 게 아니라 컴파일 자체에서 빼서, 끄는 걸 잊을 여지를 없앤다.
         // Build Settings의 "Development Build"를 켠 빌드와 에디터에서만 나온다.
@@ -604,6 +610,13 @@ public class MainMenuUI : MonoBehaviour
 
     void Update()
     {
+        // 동의 절차가 끝나야 필요 여부를 알 수 있다. 한 번 켜지면 그대로 둔다.
+        if (_adPrivacyBtnObj != null && !_adPrivacyBtnObj.activeSelf &&
+            AdManager.GetOrCreate().IsPrivacyOptionsRequired)
+        {
+            _adPrivacyBtnObj.SetActive(true);
+        }
+
         var kb = UnityEngine.InputSystem.Keyboard.current;
         if (kb == null || !kb.escapeKey.wasPressedThisFrame) return;
 
@@ -1132,6 +1145,48 @@ public class MainMenuUI : MonoBehaviour
         iconRt.pivot            = new Vector2(0.5f, 0.5f);
         iconRt.anchoredPosition = Vector2.zero;
         iconRt.sizeDelta        = new Vector2(56, 56);
+    }
+
+    // 리더보드 버튼 오른쪽 자리. 언어(30) → 리더보드(206) → 여기(382), 폭 160에 간격 16이다.
+    //
+    // 유럽경제지역·영국에서만 나타난다. 동의 절차가 비동기라 메뉴를 다 만든 뒤에야 필요
+    // 여부를 알 수 있으므로, 꺼진 채로 만들어 두고 Update 가 켠다.
+    void CreateAdPrivacyButton(GameObject parent)
+    {
+        var obj = new GameObject("AdPrivacyButton");
+        obj.transform.SetParent(parent.transform, false);
+        obj.SetActive(false);
+        _adPrivacyBtnObj = obj;
+
+        var img    = obj.AddComponent<Image>();
+        img.sprite = CreateRoundedRectBorderSprite(200, 100, 30, 3);
+        img.type   = Image.Type.Sliced;
+        ColorUtility.TryParseHtmlString("#e2e8f0", out Color borderColor);
+        img.color  = borderColor;
+
+        var btn = obj.AddComponent<Button>();
+        btn.onClick.AddListener(() => AdManager.GetOrCreate().ShowPrivacyOptions());
+
+        var rt              = obj.GetComponent<RectTransform>();
+        rt.anchorMin        = new Vector2(0f, 1f);
+        rt.anchorMax        = new Vector2(0f, 1f);
+        rt.pivot            = new Vector2(0f, 1f);
+        rt.anchoredPosition = new Vector2(382, -55);
+        rt.sizeDelta        = new Vector2(160, 80);
+
+        var txtObj = new GameObject("Text");
+        txtObj.transform.SetParent(obj.transform, false);
+        _adPrivacyText           = txtObj.AddComponent<Text>();
+        _adPrivacyText.text      = LocalizationManager.Instance.Get("ad_privacy");
+        _adPrivacyText.font      = Font4();
+        _adPrivacyText.fontSize  = 28;
+        _adPrivacyText.alignment = TextAnchor.MiddleCenter;
+        _adPrivacyText.color     = Color.black;
+        _adPrivacyText.raycastTarget = false;
+
+        var txtRt = txtObj.GetComponent<RectTransform>();
+        txtRt.anchorMin = Vector2.zero; txtRt.anchorMax = Vector2.one;
+        txtRt.offsetMin = Vector2.zero; txtRt.offsetMax = Vector2.zero;
     }
 
     void OnRemoveAdsClicked()
