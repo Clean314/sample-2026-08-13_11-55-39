@@ -279,8 +279,8 @@ public partial class InGameUI : MonoBehaviour
 
     // 터널이 화면을 다 먹지 않게 눌러 두는 값. 링은 원래 페이드인 뒤 불투명이라
     // 구간 내내 배경이 통째로 터널이 됐고, 그 위에 얹힌 보드가 묻혔다.
-    const float TUNNEL_RING_ALPHA  = 0.05f;   // ── 조정 손잡이: 링 최대 불투명도 ──
-    const float TUNNEL_SPOKE_ALPHA = 0.1f;   // ── 조정 손잡이: 스포크(트레일) 불투명도 ──
+    const float TUNNEL_RING_ALPHA  = 0.1f;   // ── 조정 손잡이: 링 최대 불투명도 ──
+    const float TUNNEL_SPOKE_ALPHA = 0.2f;   // ── 조정 손잡이: 스포크(트레일) 불투명도 ──
 
     // ── 구부러진 터널 (2차 터널 전용, 1차는 일직선) ──────────────────
     // 사인 곡선을 겹치는 대신 "곡률"을 직접 구간별로 정한다. 한 구간 동안은 곡률이 일정해서
@@ -1428,6 +1428,24 @@ public partial class InGameUI : MonoBehaviour
 
     void Update()
     {
+        // 안드로이드 뒤로가기(= Keyboard.escapeKey). 메인 메뉴와 같은 규칙으로
+        // "한 겹 벗기기"다 — 도움말이 떠 있으면 그것부터 닫고, 없을 때만 메뉴로 나간다.
+        var backKb = UnityEngine.InputSystem.Keyboard.current;
+        if (backKb != null && backKb.escapeKey.wasPressedThisFrame)
+        {
+            if (_helpOverlay != null && _helpOverlay.activeSelf)
+            {
+                HideHelp();
+            }
+            else
+            {
+                // 뒤로가기 버튼과 같은 동작이어야 한다. 판을 저장하지 않으면 이어 하기가 깨진다.
+                _gm?.SaveGame();
+                SceneManager.LoadScene("Main");
+                return;
+            }
+        }
+
         AbortStuckDrag();
         CheckGameOver();
 
@@ -1829,12 +1847,50 @@ public partial class InGameUI : MonoBehaviour
     }
 
     /// <summary>게임오버 화면에서 새 판으로 넘어가는 실제 동작.
+
+    /// <summary>
+    /// 새 판을 깔기 전에 떠 있는 연출을 걷어낸다.
+    ///
+    /// 각 연출은 자기 코루틴이 끝나면서 스스로 치우지만, 게임오버가 그 중간에 끼면
+    /// 다음 판이 시작된 뒤에도 잔상이 남아 있는 구간이 생긴다. 이전 판의 흔적이
+    /// 0점짜리 새 판 위에 떠 있으면 방금 뭔가 터진 것처럼 읽힌다.
+    ///
+    /// 이름으로 찾는 이유: 연출마다 부모가 달라 한 곳에 모여 있지 않다. 여기 목록을
+    /// 늘리는 것보다 새 연출을 만들 때 이 이름 규칙을 따르는 편이 낫다.
+    /// </summary>
+    void ClearTransientEffects()
+    {
+        if (_canvas == null) return;
+
+        // 연출 루트 이름들. 코루틴이 Destroy 하는 것과 같은 오브젝트다.
+        string[] fxRoots =
+        {
+            "RainbowBurstFX", "ClearNoteFX", "ToggleClearFX",
+            "ComboPopup", "MeltTrail", "SlideGhost",
+        };
+
+        for (int i = _canvas.transform.childCount - 1; i >= 0; i--)
+        {
+            var child = _canvas.transform.GetChild(i);
+            foreach (var name in fxRoots)
+            {
+                if (child.name != name) continue;
+                Destroy(child.gameObject);
+                break;
+            }
+        }
+
+        // 빗방울은 파괴 대상이 아니라 재사용되는 레이어다. 곡이 0초로 돌아가면 다음
+        // 프레임에 알아서 꺼지지만, 그 한 프레임이 눈에 남으므로 여기서 먼저 끈다.
+        if (_rainLayerRt != null) _rainLayerRt.gameObject.SetActive(false);
+    }
     /// 광고 제거 제안과 전면 광고가 앞에 끼면서, 이 부분만 따로 불릴 수 있어야 했다.
     /// 치울 화면은 인자로 받지 않고 _gameOverOverlay에서 찾는다 — 중간에 제안 화면으로
     /// 바뀌어 있을 수 있어서, 넘겨받은 참조는 이미 파괴된 것일 수 있다.</summary>
     void RestartRun(bool discoMode)
     {
         _reviveUsed = false;
+        ClearTransientEffects();   // 이전 판의 잔상이 새 판 위에 남지 않게
 
         // 디스코는 곡을 처음부터 다시 튼다. 새 판이니 연출도 도입부부터 시작해야 한다.
         // 첫 실행과 같은 순서다 — 되감아 두고 멈춘 뒤, 경고가 걷힐 때 곡이 시작된다.

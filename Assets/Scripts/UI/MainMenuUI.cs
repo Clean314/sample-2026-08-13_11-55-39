@@ -42,6 +42,11 @@ public class MainMenuUI : MonoBehaviour
     static readonly Color BUY_TEXT    = new Color(1f,     0.85f,  0.3f);   // 광고 제거
     static readonly Color UNLOCK_TEXT = new Color(0.35f,  0.78f,  1f);     // 모든 모드 해금
     static readonly Color START_TEXT  = new Color(0.886f, 0.910f, 0.941f);
+
+    // 종료는 되돌릴 수 없는 쪽이라 붉게 둔다. "아니오"는 기본 글자색 그대로 두어
+    // 무심코 누르는 손이 안전한 쪽으로 가게 한다.
+    static readonly Color QUIT_YES_TEXT = new Color(0.96f, 0.45f, 0.42f);
+    GameObject      _canvasObj;
     GameObject      _lockOverlay;
     Text            _modeNameText;   // 아이콘 아래: 언락 상태면 모드 이름, 락이면 해금 조건
     Button          _startBtn;
@@ -86,6 +91,7 @@ public class MainMenuUI : MonoBehaviour
     {
         // ── Canvas ──────────────────────────────────────────
         var canvasObj = new GameObject("Canvas");
+        _canvasObj    = canvasObj;   // 종료 확인 같은 오버레이를 나중에 붙일 자리
         var canvas = canvasObj.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
         canvas.sortingOrder = 0;
@@ -590,6 +596,95 @@ public class MainMenuUI : MonoBehaviour
         }
     }
 
+
+    // ── 뒤로가기(안드로이드 백 버튼) ─────────────────────────────
+    // 새 Input System 만 켜져 있어(activeInputHandler = 1) Input.GetKeyDown 은 동작하지 않는다.
+    // 안드로이드 백 버튼은 Keyboard.escapeKey 로 들어온다.
+    GameObject _quitOverlay;
+
+    void Update()
+    {
+        var kb = UnityEngine.InputSystem.Keyboard.current;
+        if (kb == null || !kb.escapeKey.wasPressedThisFrame) return;
+
+        OnBackPressed();
+    }
+
+    /// <summary>
+    /// 뒤로가기는 "한 겹 벗기기"로 동작한다. 열려 있는 것이 있으면 그것부터 닫고,
+    /// 아무것도 없을 때만 종료를 묻는다. 실수로 앱이 꺼지는 일이 없어야 한다.
+    /// </summary>
+    void OnBackPressed()
+    {
+        if (_quitOverlay != null) { CloseQuitDialog(); return; }
+
+        // 순위표가 떠 있으면 그것부터 닫는다.
+        var panel = FindFirstObjectByType<LeaderboardPanel>();
+        if (panel != null) { Destroy(panel.gameObject); return; }
+
+        ShowQuitDialog();
+    }
+
+    void CloseQuitDialog()
+    {
+        if (_quitOverlay == null) return;
+        Destroy(_quitOverlay);
+        _quitOverlay = null;
+    }
+
+    void ShowQuitDialog()
+    {
+        var loc = LocalizationManager.Instance;
+
+        _quitOverlay = new GameObject("QuitOverlay");
+        _quitOverlay.transform.SetParent(_canvasObj.transform, false);
+        _quitOverlay.transform.SetAsLastSibling();
+
+        // 뒤를 가려 두지 않으면 아래 버튼이 그대로 눌린다.
+        var dim = _quitOverlay.AddComponent<Image>();
+        // 뒤가 비치면 시작 버튼이 눈에 들어와 확인창이 가벼워 보인다. 거의 덮는다.
+        dim.color = new Color(0.01f, 0.01f, 0.03f, 0.97f);
+
+        var dimRt = _quitOverlay.GetComponent<RectTransform>();
+        dimRt.anchorMin = Vector2.zero;
+        dimRt.anchorMax = Vector2.one;
+        dimRt.offsetMin = dimRt.offsetMax = Vector2.zero;
+
+        var titleObj = new GameObject("Title");
+        titleObj.transform.SetParent(_quitOverlay.transform, false);
+
+        var title = titleObj.AddComponent<Text>();
+        title.text      = loc.Get("quit_title");
+        title.font      = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
+        title.fontSize  = 68;
+        title.alignment = TextAnchor.MiddleCenter;
+        title.color     = START_TEXT;
+        title.horizontalOverflow = HorizontalWrapMode.Wrap;
+
+        var titleRt = titleObj.GetComponent<RectTransform>();
+        titleRt.anchorMin        = new Vector2(0.5f, 0.5f);
+        titleRt.anchorMax        = new Vector2(0.5f, 0.5f);
+        titleRt.pivot            = new Vector2(0.5f, 0.5f);
+        titleRt.anchoredPosition = new Vector2(0, 150);
+        titleRt.sizeDelta        = new Vector2(900, 180);
+
+        var yes = CreateRoundedButton(_quitOverlay, loc.Get("quit_yes"),
+                      anchorY: 0.44f, textColor: QUIT_YES_TEXT, out _);
+        yes.onClick.AddListener(Quit);
+
+        var no = CreateRoundedButton(_quitOverlay, loc.Get("quit_no"),
+                     anchorY: 0.33f, textColor: START_TEXT, out _);
+        no.onClick.AddListener(CloseQuitDialog);
+    }
+
+    static void Quit()
+    {
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#else
+        Application.Quit();
+#endif
+    }
     void UpdateModeDisplay()
     {
         var loc = LocalizationManager.Instance;

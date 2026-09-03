@@ -38,6 +38,10 @@ public class LocalizationManager
         // 잠긴 모드에서 시작 버튼 자리를 대신한다 — 못 하는 이유만 보여 주는 것보다
         // 지금 할 수 있는 선택을 주는 편이 낫다.
         { "unlock_all",    new[] { "모든 모드 해금",      "Unlock All Modes" } },
+        // 뒤로가기(안드로이드 백 버튼)로 앱을 나가기 전에 한 번 묻는다.
+        { "quit_title",    new[] { "게임을 종료하시겠습니까?", "Quit the game?" } },
+        { "quit_yes",      new[] { "예",                    "Yes"            } },
+        { "quit_no",       new[] { "아니오",                 "No"             } },
 
         // ── 디버그 패널 ────────────────────────────────────────────
         { "debug_label",   new[] { "DEBUG 최고점수:",   "DEBUG High Score:" } },

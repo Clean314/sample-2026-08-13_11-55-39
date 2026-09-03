@@ -534,7 +534,11 @@ public partial class InGameUI
         {
             var go = new GameObject(name);
             go.transform.SetParent(_canvas.transform, false);
-            go.transform.SetAsLastSibling();
+
+            // 블록 바로 아래에 넣는다. 맨 위에 세우면 화면 끝에 붙은 HUD(뒤로가기,
+            // 최고 점수, 도움말, 음량)까지 덮어 버린다. 가려야 할 것은 화면 전체로
+            // 늘어난 배경 레이어들뿐이고, 그것들은 전부 블록보다 아래에 있다.
+            go.transform.SetSiblingIndex(_blockLayerRt.GetSiblingIndex());
 
             var img = go.AddComponent<Image>();
             img.color         = Color.black;
