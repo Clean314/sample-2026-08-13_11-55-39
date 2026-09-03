@@ -116,3 +116,6 @@ InitTestScene*.unity*
 # 파일 자체는 별도 공간(드라이브·USB)에 백업하고, 여기로는 절대 들이지 않는다.
 *.keystore
 *.jks
+
+# 빌드에서 뺀 미사용 음원 보관함. Assets/ 밖이라 Unity 가 보지 않는다.
+_unused_audio/
