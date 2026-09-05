@@ -127,11 +127,6 @@ public class AdManager : MonoBehaviour
         // 지금은 전역으로 한 번에 막는 이쪽을 쓴다. 속성이 실제로 제거되면 그때 옮긴다.
         MobileAds.RaiseAdEventsOnUnityMainThread = true;
 
-        // 되돌리는 것을 잊는 게 이 스위치의 유일한 위험이다. 화면만 봐서는 테스트 광고와
-        // 실제 광고가 구별되지 않으므로, 로그에서라도 눈에 띄게 해 둔다.
-        if (USE_TEST_ADS)
-            Debug.LogWarning("[AdManager] ★ 테스트 광고 ID 사용 중 — 출시 전 USE_TEST_ADS = false 로 되돌릴 것 ★");
-
         RequestConsent();
 #endif
     }
