@@ -24,29 +24,53 @@ public class AdManager : MonoBehaviour
     public static AdManager Instance { get; private set; }
 
     // ── 광고 단위 ID ──────────────────────────────────────────────
-    // 안드로이드는 실제 ID다. 개발 중에 이 광고를 직접 누르면 계정이 정지될 수 있으니,
-    // 화면에 뜨는지만 확인하고 클릭하지 않는다.
     //
-    // APP_ID 는 런타임에서 읽히지 않는다 — SDK 는 매니페스트의 APPLICATION_ID 메타데이터를
-    // 본다(Assets > Google Mobile Ads > Settings 가 거기에 써 넣는다). 여기 값은 대조용이다.
+    //  ╔══════════════════════════════════════════════════════════╗
+    //  ║  출시 전에 USE_TEST_ADS 를 false 로 되돌린다.             ║
+    //  ║  true 인 채로 내보내면 광고 수익이 0원이 되고,            ║
+    //  ║  화면에는 광고가 정상으로 보여서 한참 눈치채지 못한다.    ║
+    //  ╚══════════════════════════════════════════════════════════╝
     //
-    // iOS 는 아직 앱을 등록하지 않아 테스트 ID 그대로 둔다.
+    // 지금 테스트 ID 를 쓰는 이유: 비공개 테스트 동안 실제 광고가 노출·클릭되면
+    // 무효 트래픽으로 잡힐 수 있다. 테스트 ID 는 어느 기기에서든 안전하다.
+    //
+    // APP_ID 는 런타임에서 읽히지 않는다 — SDK 는 매니페스트의 APPLICATION_ID
+    // 메타데이터를 본다. 그래서 이 값을 바꿔도 매니페스트는 실제 앱 ID 그대로이고,
+    // 그 조합(실제 앱 ID + 테스트 광고 단위)이 구글이 안내하는 정상 사용법이다.
+    const bool USE_TEST_ADS = true;
+
 #if UNITY_ANDROID
-    const string APP_ID      = "ca-app-pub-8759899777428361~1010312109";
-    const string BANNER_ID   = "ca-app-pub-8759899777428361/9978522515";
-    const string REWARDED_ID = "ca-app-pub-8759899777428361/6174268559";
-    const string INTER_ID    = "ca-app-pub-8759899777428361/2693455363";
+    // 실제 ID — 되돌릴 때 이 넷을 쓴다.
+    const string REAL_APP_ID      = "ca-app-pub-8759899777428361~1010312109";
+    const string REAL_BANNER_ID   = "ca-app-pub-8759899777428361/9978522515";
+    const string REAL_REWARDED_ID = "ca-app-pub-8759899777428361/6174268559";
+    const string REAL_INTER_ID    = "ca-app-pub-8759899777428361/2693455363";
+
+    // 구글 공식 테스트 ID (안드로이드)
+    const string TEST_APP_ID      = "ca-app-pub-3940256099942544~3347511713";
+    const string TEST_BANNER_ID   = "ca-app-pub-3940256099942544/9214589741"; // 적응형 배너
+    const string TEST_REWARDED_ID = "ca-app-pub-3940256099942544/5224354917";
+    const string TEST_INTER_ID    = "ca-app-pub-3940256099942544/1033173712";
 #elif UNITY_IOS
-    const string APP_ID      = "ca-app-pub-3940256099942544~1458002511";
-    const string BANNER_ID   = "ca-app-pub-3940256099942544/2435281174"; // 적응형 배너 테스트 ID
-    const string REWARDED_ID = "ca-app-pub-3940256099942544/1712485313";
-    const string INTER_ID    = "ca-app-pub-3940256099942544/4411468910"; // 전면 테스트 ID
+    // iOS 는 아직 앱을 등록하지 않아 양쪽 다 테스트 ID다.
+    const string REAL_APP_ID      = "ca-app-pub-3940256099942544~1458002511";
+    const string REAL_BANNER_ID   = "ca-app-pub-3940256099942544/2435281174";
+    const string REAL_REWARDED_ID = "ca-app-pub-3940256099942544/1712485313";
+    const string REAL_INTER_ID    = "ca-app-pub-3940256099942544/4411468910";
+
+    const string TEST_APP_ID      = REAL_APP_ID;
+    const string TEST_BANNER_ID   = REAL_BANNER_ID;
+    const string TEST_REWARDED_ID = REAL_REWARDED_ID;
+    const string TEST_INTER_ID    = REAL_INTER_ID;
 #else
-    const string APP_ID      = "";
-    const string BANNER_ID   = "";
-    const string REWARDED_ID = "";
-    const string INTER_ID    = "";
+    const string REAL_APP_ID = "", REAL_BANNER_ID = "", REAL_REWARDED_ID = "", REAL_INTER_ID = "";
+    const string TEST_APP_ID = "", TEST_BANNER_ID = "", TEST_REWARDED_ID = "", TEST_INTER_ID = "";
 #endif
+
+    const string APP_ID      = USE_TEST_ADS ? TEST_APP_ID      : REAL_APP_ID;
+    const string BANNER_ID   = USE_TEST_ADS ? TEST_BANNER_ID   : REAL_BANNER_ID;
+    const string REWARDED_ID = USE_TEST_ADS ? TEST_REWARDED_ID : REAL_REWARDED_ID;
+    const string INTER_ID    = USE_TEST_ADS ? TEST_INTER_ID    : REAL_INTER_ID;
 
 #if UNITY_ANDROID || UNITY_IOS
     BannerView      _banner;
@@ -62,6 +86,17 @@ public class AdManager : MonoBehaviour
     volatile bool _sdkReady;          // MobileAds.Initialize 완료
     bool _initStarted;
     bool _bannerWanted;               // 준비되기 전에 ShowBanner 가 불렸다
+
+    // 동의 콜백이 끝내 돌아오지 않는 경우가 있다. 기기 로그로 확인한 실제 사례가 있는데,
+    // UMP 네이티브는 판정을 마치고 저장까지 했는데(IABTCF_gdprApplies 기록됨) C# 콜백만
+    // 오지 않았다. 그 상태로 두면 광고가 영영 뜨지 않는다 — 무응답이 "동의 안 함"과
+    // 같은 결과가 되어 버린다.
+    //
+    // 그래서 일정 시간이 지나면 그냥 진행한다. 동의를 건너뛰는 것이 아니다 —
+    // 아래에서 CanRequestAds() 가 다시 확인하므로, 동의가 필요한 지역에서 동의가
+    // 없으면 거기서 막힌다.
+    const float CONSENT_TIMEOUT = 5f;
+    float _consentStartedAt;
 #endif
 
     // ── 생성 ─────────────────────────────────────────────────────
@@ -92,6 +127,11 @@ public class AdManager : MonoBehaviour
         // 지금은 전역으로 한 번에 막는 이쪽을 쓴다. 속성이 실제로 제거되면 그때 옮긴다.
         MobileAds.RaiseAdEventsOnUnityMainThread = true;
 
+        // 되돌리는 것을 잊는 게 이 스위치의 유일한 위험이다. 화면만 봐서는 테스트 광고와
+        // 실제 광고가 구별되지 않으므로, 로그에서라도 눈에 띄게 해 둔다.
+        if (USE_TEST_ADS)
+            Debug.LogWarning("[AdManager] ★ 테스트 광고 ID 사용 중 — 출시 전 USE_TEST_ADS = false 로 되돌릴 것 ★");
+
         RequestConsent();
 #endif
     }
@@ -116,6 +156,8 @@ public class AdManager : MonoBehaviour
     /// </summary>
     void RequestConsent()
     {
+        _consentStartedAt = Time.realtimeSinceStartup;
+
         var request = new ConsentRequestParameters
         {
             // 앱이 만 13세 이상을 대상으로 하므로 false 다.
@@ -141,8 +183,15 @@ public class AdManager : MonoBehaviour
 
     void Update()
     {
-        if (!_consentFlowDone || _initStarted) return;
+        if (_initStarted) return;
+
+        bool timedOut = Time.realtimeSinceStartup - _consentStartedAt > CONSENT_TIMEOUT;
+        if (!_consentFlowDone && !timedOut) return;
+
         _initStarted = true;
+
+        if (!_consentFlowDone)
+            Debug.LogWarning($"[AdManager] 동의 절차가 {CONSENT_TIMEOUT}초 안에 응답하지 않아 그대로 진행한다.");
 
         // 동의를 거부했거나 절차가 실패한 경우. 광고 없이 게임만 돌아간다.
         if (!ConsentInformation.CanRequestAds())
