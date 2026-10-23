@@ -28,13 +28,10 @@ public static class Store
     /// <summary>이미 가진 상품인지.</summary>
     public static bool IsOwned(string productId) => PlayerPrefs.GetInt(PrefKey(productId), 0) == 1;
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR
     /// <summary>
     /// 구매 상태를 되돌린다. 한 번 사고 나면 제안 화면과 잠금 화면을 다시 볼 수 없어
-    /// 시험이 막히기 때문이다.
-    ///
-    /// 기기에서는 스토어의 소유 기록까지 지우지는 못한다 — 앱을 다시 켜면 복원으로
-    /// 되살아난다. 그 자리에서 화면만 되돌려 보는 용도다.
+    /// 시험이 막히기 때문이다. 에디터 전용이다.
     /// </summary>
     public static void DebugRevoke(string productId)
     {

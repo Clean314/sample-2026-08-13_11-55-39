@@ -25,7 +25,7 @@ public static class UnlockAll
     public static void Purchase(Action onSuccess, Action onFailed = null)
         => Store.Purchase(PRODUCT_ID, onSuccess, onFailed);
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR
     /// <summary>구매 상태를 되돌린다(잠금 화면을 다시 보려고).</summary>
     public static void DebugRevoke() => Store.DebugRevoke(PRODUCT_ID);
 #endif

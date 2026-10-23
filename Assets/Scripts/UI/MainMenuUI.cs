@@ -117,9 +117,9 @@ public class MainMenuUI : MonoBehaviour
 
         BGMManager.GetOrCreate();
         NetworkChecker.GetOrCreate();
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-        // 개발 빌드에는 화면 아래에 디버그 점수 패널이 붙는다. 배너가 그 위를 덮어 입력이
-        // 막히므로 메인 메뉴에서는 내려 둔다. 인게임 배너와 출시 빌드는 그대로다.
+#if UNITY_EDITOR
+        // 에디터에는 화면 아래에 디버그 점수 패널이 붙는다. 배너가 그 위를 덮어 입력이
+        // 막히므로 메인 메뉴에서는 내려 둔다. 인게임 배너와 기기 빌드는 그대로다.
         AdManager.GetOrCreate().HideBanner();
 #else
         AdManager.GetOrCreate().ShowBanner();
@@ -149,10 +149,10 @@ public class MainMenuUI : MonoBehaviour
         CreateLanguageButton(canvasObj);
         CreateLeaderboardButton(canvasObj);
         CreateAdPrivacyButton(canvasObj);
-        // 점수를 직접 고칠 수 있는 패널이라 정식 빌드에는 들어가면 안 된다.
+        // 점수를 직접 고칠 수 있는 패널이라 기기 빌드에는 들어가면 안 된다.
         // 화면에서 숨기는 게 아니라 컴파일 자체에서 빼서, 끄는 걸 잊을 여지를 없앤다.
-        // Build Settings의 "Development Build"를 켠 빌드와 에디터에서만 나온다.
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        // 에디터에서만 나온다.
+#if UNITY_EDITOR
         CreateDebugPanel(canvasObj);
 #endif
         UpdateModeDisplay();
@@ -948,7 +948,7 @@ public class MainMenuUI : MonoBehaviour
 
     // ── [DEBUG] 최고 점수 설정 패널 ──────────────────────────
     // 스와이프로 표시되는 현재 모드의 m{idx}_HighScore를 직접 편집
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR
     void CreateDebugPanel(GameObject parent)
     {
         var panel = new GameObject("DebugPanel");
@@ -1032,7 +1032,7 @@ public class MainMenuUI : MonoBehaviour
         _debugField.placeholder   = ph;
 
 
-        // 구매 초기화 — 에디터·개발 빌드에서 결제는 즉시 성립되고 PlayerPrefs 에 남는다.
+        // 구매 초기화 — 에디터에서 결제는 즉시 성립되고 PlayerPrefs 에 남는다.
         // 한 번 사고 나면 제안 화면과 잠금 화면을 다시 볼 수 없어 시험이 막힌다.
         var revokeObj = new GameObject("RevokeBtn");
         revokeObj.transform.SetParent(panel.transform, false);
@@ -1165,6 +1165,12 @@ public class MainMenuUI : MonoBehaviour
         img.color  = borderColor;
 
         var btn = obj.AddComponent<Button>();
+        var colors = btn.colors;
+        colors.normalColor      = Color.white;
+        colors.highlightedColor = new Color(1f, 1f, 1f, 0.75f);
+        colors.pressedColor     = new Color(0.75f, 0.75f, 0.75f, 1f);
+        colors.fadeDuration     = 0.1f;
+        btn.colors = colors;
         btn.onClick.AddListener(() => AdManager.GetOrCreate().ShowPrivacyOptions());
 
         var rt              = obj.GetComponent<RectTransform>();
@@ -1181,7 +1187,8 @@ public class MainMenuUI : MonoBehaviour
         _adPrivacyText.font      = Font4();
         _adPrivacyText.fontSize  = 28;
         _adPrivacyText.alignment = TextAnchor.MiddleCenter;
-        _adPrivacyText.color     = Color.black;
+        ColorUtility.TryParseHtmlString("#e2e8f0", out Color txtColor);
+        _adPrivacyText.color     = txtColor;
         _adPrivacyText.raycastTarget = false;
 
         var txtRt = txtObj.GetComponent<RectTransform>();

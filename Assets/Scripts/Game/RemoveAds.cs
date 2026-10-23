@@ -39,7 +39,7 @@ public static class RemoveAds
         };
     }
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR
     /// <summary>구매 상태를 되돌린다(제안 팝업을 다시 보려고).</summary>
     public static void DebugRevoke() => Store.DebugRevoke(PRODUCT_ID);
 #endif
