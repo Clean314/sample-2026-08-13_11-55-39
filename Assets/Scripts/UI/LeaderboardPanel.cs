@@ -15,11 +15,23 @@ public class LeaderboardPanel : MonoBehaviour
     const bool COMING_SOON = false;
 
     static readonly string[] MODE_LOC_KEYS = { "mode_normal", "mode_ice", "mode_toggle", "mode_disco" };
+    // 제목의 "리더보드 |" 뒤에 모드 이름 대신 붙이는 모드 아이콘 (메인 메뉴와 같은 그림).
+    static readonly string[] MODE_ICONS = { "Sprites/Modes/normal_mode", "Sprites/Modes/ice_mode",
+                                            "Sprites/Modes/toggle_mode", "Sprites/Modes/disco_mode" };
+    // ── 조정 손잡이: 제목 아이콘 크기. 그림(512)에 여백이 있어 실제로 보이는 건 약 84% 다 ──
+    const float TITLE_ICON     = 96f;
+    // ── 조정 손잡이: 제목 간격. "리더보드"·"|"·아이콘을 따로 놓고 사이를 이만큼 띄운다 ──
+    // 아이콘 그림은 왼쪽에 여백이 약 8px 있어서, 눈에 보이는 간격을 같게 하려고 그만큼 덜 준다.
+    const float TITLE_BAR_GAP  = 30f;   // "리더보드" 와 "|" 사이
+    const float TITLE_ICON_GAP = 22f;   // "|" 와 아이콘 사이 (+ 그림 여백 8 ≈ 30)
     const int ROW_COUNT = 8;      // 한 화면에 보여 줄 줄 수
     const int TOP_COUNT = 20;     // 서비스에서 받아 올 줄 수
 
     RectTransform _root;
     Text          _titleText;
+    Image         _titleIcon;
+    Text          _titleBar;    // 제목 가운데 세로줄. 간격을 직접 잡으려고 글자를 따로 둔다
+    Sprite[]      _modeIcons = new Sprite[MODE_ICONS.Length];
     Button[]      _tabs   = new Button[MODE_LOC_KEYS.Length];
     Text[]        _tabText = new Text[MODE_LOC_KEYS.Length];
     GameObject    _listGo;
@@ -68,6 +80,15 @@ public class LeaderboardPanel : MonoBehaviour
             soonClose.onClick.AddListener(() => Destroy(gameObject));
             return;
         }
+
+        var iconGo = new GameObject("TitleIcon");
+        iconGo.transform.SetParent(transform, false);
+        _titleIcon = iconGo.AddComponent<Image>();
+        _titleIcon.preserveAspect = true;
+        _titleIcon.raycastTarget  = false;
+        var iconRt = _titleIcon.rectTransform;
+        iconRt.anchorMin = iconRt.anchorMax = new Vector2(0.5f, 0.5f);
+        iconRt.sizeDelta = new Vector2(TITLE_ICON, TITLE_ICON);
 
         // ── 모드 탭 ──────────────────────────────────────────
         for (int i = 0; i < MODE_LOC_KEYS.Length; i++)
@@ -147,7 +168,7 @@ public class LeaderboardPanel : MonoBehaviour
         var loc     = LocalizationManager.Instance;
         var service = Leaderboards.Service;
 
-        _titleText.text = $"{loc.Get("leaderboard")} · {loc.Get(MODE_LOC_KEYS[_mode])}";
+        RefreshTitle(loc);
 
         for (int i = 0; i < _tabs.Length; i++)
         {
@@ -205,6 +226,52 @@ public class LeaderboardPanel : MonoBehaviour
                 _rowRank[i].color = e.isSelf ? GOLD : DIM;
             }
         });
+    }
+
+    // "리더보드", "|", 모드 아이콘을 한 덩어리로 보고 가운데에 맞춘다.
+    // 아이콘이 없으면(그림 누락) 예전처럼 모드 이름을 글자로 붙인다.
+    void RefreshTitle(LocalizationManager loc)
+    {
+        if (_modeIcons[_mode] == null)
+        {
+            var tex = Resources.Load<Texture2D>(MODE_ICONS[_mode]);
+            if (tex != null)
+                _modeIcons[_mode] = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f));
+        }
+        var icon = _modeIcons[_mode];
+        var tRt  = _titleText.rectTransform;
+        float y  = tRt.anchoredPosition.y;
+
+        if (icon == null)
+        {
+            _titleIcon.gameObject.SetActive(false);
+            if (_titleBar != null) _titleBar.gameObject.SetActive(false);
+            _titleText.text     = $"{loc.Get("leaderboard")} | {loc.Get(MODE_LOC_KEYS[_mode])}";
+            tRt.anchoredPosition = new Vector2(0f, y);
+            return;
+        }
+
+        if (_titleBar == null)
+        {
+            _titleBar = Label(transform, "|", _titleText.fontSize, DIM, Vector2.zero, new Vector2(60, 110));
+            _titleBar.fontStyle = FontStyle.Normal;   // 굵으면 세로줄이 글자보다 무거워 보인다
+        }
+        _titleBar.gameObject.SetActive(true);
+
+        _titleText.text = loc.Get("leaderboard");
+        float tw    = _titleText.preferredWidth;
+        float bw    = _titleBar.preferredWidth;
+        float total = tw + TITLE_BAR_GAP + bw + TITLE_ICON_GAP + TITLE_ICON;
+        float x     = -total * 0.5f;
+
+        tRt.anchoredPosition = new Vector2(x + tw * 0.5f, y);
+        x += tw + TITLE_BAR_GAP;
+        _titleBar.rectTransform.anchoredPosition = new Vector2(x + bw * 0.5f, y);
+        x += bw + TITLE_ICON_GAP;
+
+        _titleIcon.gameObject.SetActive(true);
+        _titleIcon.sprite = icon;
+        _titleIcon.rectTransform.anchoredPosition = new Vector2(x + TITLE_ICON * 0.5f, y);
     }
 
     void ClearRows()
@@ -270,8 +337,8 @@ public class LeaderboardPanel : MonoBehaviour
     static Font Font4() =>
         Resources.Load<Font>("Fonts/SCDream4") ?? Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 
-    static Sprite RoundedSprite(int w, int h, int r) => MakeRounded(w, h, r, 0);
-    static Sprite RoundedBorderSprite(int w, int h, int r, int border) => MakeRounded(w, h, r, border);
+    internal static Sprite RoundedSprite(int w, int h, int r) => MakeRounded(w, h, r, 0);
+    internal static Sprite RoundedBorderSprite(int w, int h, int r, int border) => MakeRounded(w, h, r, border);
 
     // 둥근 사각형(테두리 두께 0이면 꽉 찬 사각형). 9-slice로 늘려 쓴다.
     static Sprite MakeRounded(int w, int h, int radius, int border)

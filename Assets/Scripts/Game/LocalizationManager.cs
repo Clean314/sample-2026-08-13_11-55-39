@@ -67,6 +67,17 @@ public class LocalizationManager
         // 그 지역에서 언어를 한국어로 두고 쓰는 사람도 있으므로 비워 두지 않는다.
         { "ad_privacy",    new[] { "광고 설정",            "Ad privacy"           } },
 
+        // ── 최고 점수 공유 카드 ──────────────────────────────────
+        { "share_title",   new[] { "최고 점수 공유",        "Share Your Best"      } },
+        { "share_save",    new[] { "이미지 저장",           "Save Image"           } },
+        { "share_saving",  new[] { "저장하는 중...",         "Saving..."            } },
+        { "share_saved",   new[] { "사진 앱에 저장했습니다",   "Saved to your photos" } },
+        { "share_failed",  new[] { "저장하지 못했습니다",     "Could not save"       } },
+        { "share_denied",  new[] { "저장하려면 사진 저장 권한이 필요합니다",
+                                                          "Storage permission is needed to save" } },
+        { "share_name_hint", new[] { "리더보드에 로그인하면 카드에 내 이름이 들어갑니다",
+                                                          "Sign in on the leaderboard to put your name on the card" } },
+
         // ── 리더보드 ──────────────────────────────────────────────
         { "leaderboard",   new[] { "리더보드",            "Leaderboard"          } },
         { "lb_coming_soon",new[] { "추후 출시",            "Coming Soon"          } },

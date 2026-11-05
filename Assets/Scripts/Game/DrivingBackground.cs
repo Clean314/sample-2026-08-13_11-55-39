@@ -60,8 +60,8 @@ public class DrivingBackground : MonoBehaviour
     // 페이즈별 차 그림. 색 보정은 코드로 하지 않고 그림을 바꿔 끼운다 — 빛이 비치는 방향까지
     // 담을 수 있어 코드로 색을 고르게 입히는 것보다 자연스럽다.
     //   car.png         아침 (기본). 없으면 예전 실루엣 도형으로 대신한다
-    //   car_sunset.png  노을. 없으면 car.png
-    //   car_night.png   밤(명암 반전)의 흰 차. 없으면 car.png
+    //   car_night.png   노을(주황빛 도시)에 맞춰 색을 입힌 차. 없으면 car.png
+    //   car_white.png   밤(명암 반전)의 흰 차. 없으면 car.png
     // 세 장은 크기(440x181)와 차 위치가 같아야 한다. 램프 위치(HEADLIGHT_UV 등)를 같이 쓴다.
     const float CAR_Y    = GROUND_H - 6f;   // 바퀴가 도로 표면에 살짝 물리도록
     const float CAR_BOB  = 6f;              // ── 조정 손잡이: 박자마다 차가 튀는 높이 ──
@@ -203,6 +203,36 @@ public class DrivingBackground : MonoBehaviour
     /// 페이드가 시작되는 순간부터 false — 아직 하늘이 불투명할 때 미리 아래를 준비시켜야
     /// 엷어지는 동안 셀이 이미 그 자리에 있다.
     public bool CoversScreen => _phase != ScenePhase.Colorful;
+
+    // ── 미리보기 (공유 카드) ─────────────────────────────────────
+    // 곡 없이 한 구간을 그대로 되풀이한다. BeatTracker 대신 스스로 시간을 흘리고, 구간 끝에
+    // 닿으면 처음으로 돌아간다. 구간 밖으로 나가 스스로 사라지는 일도 없다.
+    bool   _preview;
+    double _previewT, _previewLo, _previewHi;
+
+    public static DrivingBackground SpawnPreview(Transform parent, double fromSec, double toSec)
+    {
+        var go = new GameObject("DrivingBackgroundPreview");
+        go.transform.SetParent(parent, false);
+        var comp = go.AddComponent<DrivingBackground>();
+        comp._preview   = true;
+        comp._previewLo = fromSec;
+        comp._previewHi = toSec;
+        comp._previewT  = fromSec;
+        comp.Build();
+        return comp;
+    }
+
+    double NowSec()
+    {
+        if (!_preview) return _bt.PlaybackSec;
+        _previewT += Time.deltaTime;
+        if (_previewT >= _previewHi) _previewT = _previewLo;
+        return _previewT;
+    }
+
+    float NowBeatPhase(double t) =>
+        _preview ? (float)(t * BeatTracker.BPM / 60.0 % 1.0) : _bt.BeatPhase;
 
     public static DrivingBackground Spawn(Canvas parentCanvas, BeatTracker bt)
     {
@@ -515,8 +545,8 @@ public class DrivingBackground : MonoBehaviour
 
         // Texture2D 로 읽어 직접 스프라이트를 만든다. 임포트 설정(Sprite 타입 여부)에 매이지 않는다.
         _carDay    = LoadSprite("Sprites/Effects/car");
-        _carSunset = LoadSprite("Sprites/Effects/car_sunset");
-        _carNight  = LoadSprite("Sprites/Effects/car_night");
+        _carSunset = LoadSprite("Sprites/Effects/car_night");   // 파일 이름은 그린 사람 기준 — 주황빛 "밤" 도시용
+        _carNight  = LoadSprite("Sprites/Effects/car_white");
         _carIsArt  = _carDay != null;
         _carImg = AddImage(_carRt.gameObject, Color.white);
         _carImg.sprite = _carIsArt ? _carDay : MakeCarSprite(512, 256);
@@ -544,12 +574,12 @@ public class DrivingBackground : MonoBehaviour
 
     void Update()
     {
-        if (_bt == null) return;
-        double t = _bt.PlaybackSec;
+        if (_bt == null && !_preview) return;
+        double t = NowSec();
 
         // 자기 구간을 벗어나면 스스로 정리한다. 되감기나 트랙 루프로 앞으로 돌아간 경우도 포함.
         // (CityLightBackground와 같은 규칙 — 얼어붙은 채 화면에 남지 않게)
-        if (t < APPEAR_START || t >= DISAPPEAR_AT)
+        if (!_preview && (t < APPEAR_START || t >= DISAPPEAR_AT))
         {
             Destroy(gameObject);
             return;
@@ -582,7 +612,7 @@ public class DrivingBackground : MonoBehaviour
             _jointRts[i].anchoredPosition = new Vector2(Wrap(_jointBaseX[i] + _laneScroll, _jointStrip), 0f);
 
         // 차는 박자 시작에 살짝 떴다가 내려앉는다.
-        float beat = 1f - _bt.BeatPhase;
+        float beat = 1f - NowBeatPhase(t);
         float lift = CAR_BOB * beat * beat * beat;
         _carRt.anchoredPosition = new Vector2(0f, CAR_Y + lift);
         // 차가 뜨면 그림자는 살짝 작아진다.

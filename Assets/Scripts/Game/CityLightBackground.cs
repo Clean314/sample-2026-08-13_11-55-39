@@ -184,6 +184,36 @@ public class CityLightBackground : MonoBehaviour
         = new List<(RectTransform, Vector2, Vector2, Vector2, Color32)>();
     RectTransform _beamL, _beamR;
 
+    // ── 미리보기 (공유 카드) ─────────────────────────────────────
+    // 곡 없이 한 구간을 그대로 되풀이한다. BeatTracker 대신 스스로 시간을 흘리고, 구간 끝에
+    // 닿으면 처음으로 돌아간다. 구간 밖으로 나가 스스로 사라지는 일도 없다.
+    bool   _preview;
+    double _previewT, _previewLo, _previewHi;
+
+    public static CityLightBackground SpawnPreview(Transform parent, double fromSec, double toSec)
+    {
+        var go = new GameObject("CityLightBackgroundPreview");
+        go.transform.SetParent(parent, false);
+        var comp = go.AddComponent<CityLightBackground>();
+        comp._preview   = true;
+        comp._previewLo = fromSec;
+        comp._previewHi = toSec;
+        comp._previewT  = fromSec;
+        comp.Build();
+        return comp;
+    }
+
+    double NowSec()
+    {
+        if (!_preview) return _bt.PlaybackSec;
+        _previewT += Time.deltaTime;
+        if (_previewT >= _previewHi) _previewT = _previewLo;
+        return _previewT;
+    }
+
+    float NowBeatPhase(double t) =>
+        _preview ? (float)(t * BeatTracker.BPM / 60.0 % 1.0) : _bt.BeatPhase;
+
     public static CityLightBackground Spawn(Canvas parentCanvas, BeatTracker bt)
     {
         var go = new GameObject("CityLightBackground");
@@ -469,12 +499,12 @@ public class CityLightBackground : MonoBehaviour
 
     void Update()
     {
-        if (_bt == null) return;
-        double t = _bt.PlaybackSec;
+        if (_bt == null && !_preview) return;
+        double t = NowSec();
 
         // 등장 구간 밖으로 되감긴 경우(에디터 시크 등): 화면을 덮은 채 얼어붙지 않도록 스스로 정리한다.
         // 파괴되면 InGameUI가 _bgImage/그리드 배경을 복원하고, 다시 앞으로 시크하면 새로 스폰된다.
-        if (t < APPEAR_START || t >= FADE_OUT_END)
+        if (!_preview && (t < APPEAR_START || t >= FADE_OUT_END))
         {
             _phase = Phase.Done;
             Destroy(gameObject);
@@ -496,7 +526,7 @@ public class CityLightBackground : MonoBehaviour
         float tm = Time.time;
 
         // 박자: 박 시작에 1, 박 끝으로 갈수록 NEON_FLOOR 로 가라앉는다.
-        float beat  = 1f - _bt.BeatPhase;
+        float beat  = 1f - NowBeatPhase(t);
         float pulse = Mathf.Lerp(NEON_FLOOR, 1f, beat * beat);
         foreach (var p in _pulses) SetAlpha(p.img, p.maxAlpha * pulse);
 

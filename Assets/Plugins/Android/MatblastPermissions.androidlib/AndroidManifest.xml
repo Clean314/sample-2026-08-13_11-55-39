@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 최고 점수 공유 카드를 사진 앱에 저장할 때 쓰는 권한 (ImageSaver.cs).
+     안드로이드 10 이상은 MediaStore 로 권한 없이 저장하므로 9(API 28)까지만 선언한다. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+                     android:maxSdkVersion="28" />
+    <application />
+</manifest>

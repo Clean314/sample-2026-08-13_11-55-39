@@ -219,11 +219,19 @@ public partial class InGameUI
         return Sprite.Create(tex, new Rect(0, 0, SIZE, SIZE), new Vector2(0.5f, 0.5f));
     }
 
+    /// <summary>공유 카드(SharePanel) 배경용 방. 굽는 데 시간이 걸려 색마다 한 번만 굽는다.</summary>
+    internal static Sprite ShareRoomSprite(bool light)
+    {
+        if (light) return s_shareRoomLight ??= MakeRoomSprite(TOGGLE_BG_LIGHT, TOGGLE_LINE_LIGHT);
+        return s_shareRoomDark ??= MakeRoomSprite(TOGGLE_BG_DARK, TOGGLE_LINE_DARK);
+    }
+    static Sprite s_shareRoomDark, s_shareRoomLight;
+
     /// <summary>
     /// 방 한 장을 굽는다. 카메라는 원점에서 +z 를 보고, 방은 x∈[-hx,hx] y∈[-hy,hy] 인
     /// 상자다. 뒷벽 깊이 D 를 초점거리와 같게 둬서 뒷벽에서 월드 단위 = 화면 픽셀이 된다.
     /// </summary>
-    Sprite MakeRoomSprite(Color bg, Color line)
+    static Sprite MakeRoomSprite(Color bg, Color line)
     {
         const float D = ROOM_FOCAL;
         float hx = ROOM_BACK_SCALE * ROOM_REF_W * 0.5f;

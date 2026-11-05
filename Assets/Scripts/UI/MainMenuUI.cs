@@ -42,6 +42,7 @@ public class MainMenuUI : MonoBehaviour
     static readonly Color BUY_TEXT    = new Color(1f,     0.85f,  0.3f);   // 광고 제거
     static readonly Color UNLOCK_TEXT = new Color(0.35f,  0.78f,  1f);     // 모든 모드 해금
     static readonly Color START_TEXT  = new Color(0.886f, 0.910f, 0.941f);
+    static readonly Color DOT_ON      = new Color(1f,     0.85f,  0.3f);   // 인게임 BEST 글자(InGameUI.GOLD)와 같은 색
 
     // 종료는 되돌릴 수 없는 쪽이라 붉게 둔다. "아니오"는 기본 글자색 그대로 두어
     // 무심코 누르는 손이 안전한 쪽으로 가게 한다.
@@ -113,6 +114,8 @@ public class MainMenuUI : MonoBehaviour
 
     void Start()
     {
+        // 인게임에서 돌아왔으면 방금 하던 모드를 보여 준다. 앱을 처음 켜면 노말(SelectedMode 기본값)이다.
+        _currentMode = Mathf.Clamp(ModeSession.SelectedMode, 0, MODE_IMAGES.Length - 1);
         BuildMainMenu();
         LocalizationManager.Instance.OnLanguageChanged += RefreshTexts;
     }
@@ -189,6 +192,7 @@ public class MainMenuUI : MonoBehaviour
         noAdsBtn.onClick.AddListener(OnRemoveAdsClicked);
 
         CreateMuteButton(canvasObj);
+        CreateShareButton(canvasObj);
         CreateLanguageButton(canvasObj);
         CreateLeaderboardButton(canvasObj);
         CreateAdPrivacyButton(canvasObj);
@@ -517,7 +521,7 @@ public class MainMenuUI : MonoBehaviour
     {
         const float gap = 34f;
 
-        var dotSprite = CreateCircleSprite(24);   // 점마다 텍스처를 새로 굽지 않는다
+        var dotSprite = CreateDiamondSprite(32);   // 점마다 텍스처를 새로 굽지 않는다
         _modeDots     = new Image[TotalSlots];
         float startX  = -(TotalSlots - 1) * gap * 0.5f;
 
@@ -550,34 +554,38 @@ public class MainMenuUI : MonoBehaviour
             if (_modeDots[i] == null) continue;
 
             bool on = i == _currentMode;
-            _modeDots[i].color = new Color(1f, 1f, 1f, on ? 0.95f : 0.25f);
-            _modeDots[i].rectTransform.sizeDelta = Vector2.one * (on ? 18f : 12f);
+            // 지금 모드는 인게임 최고 점수(BEST) 글자와 같은 노란색, 나머지는 흐린 흰색.
+            _modeDots[i].color = on ? DOT_ON : new Color(1f, 1f, 1f, 0.25f);
+            // 마름모는 같은 상자 안에서 원보다 작아 보여서 원(18/12)보다 조금 크게 잡는다.
+            _modeDots[i].rectTransform.sizeDelta = Vector2.one * (on ? 22f : 15f);
         }
     }
 
-    /// <summary>점 하나를 그릴 원. 경계를 1px 부드럽게 해야 작은 크기에서 톱니가 안 보인다.</summary>
-    static Sprite CreateCircleSprite(int size)
+    /// <summary>
+    /// 위치 표시 마름모. 가로세로 중심까지의 거리 합(|x|+|y|)이 반지름 안이면 칠한다.
+    /// 경계를 1px 부드럽게 해야 작은 크기에서 톱니가 안 보인다.
+    /// </summary>
+    static Sprite CreateDiamondSprite(int size)
     {
         var tex = new Texture2D(size, size, TextureFormat.ARGB32, false);
         tex.filterMode = FilterMode.Bilinear;
-
-        var   px   = new Color32[size * size];
-        float half = size * 0.5f;
-
+        tex.wrapMode   = TextureWrapMode.Clamp;
+        var px   = new Color32[size * size];
+        float h  = size * 0.5f;
+        float r  = h - 1f;
         for (int y = 0; y < size; y++)
             for (int x = 0; x < size; x++)
             {
-                float dx = x + 0.5f - half;
-                float dy = y + 0.5f - half;
-                float d  = Mathf.Sqrt(dx * dx + dy * dy);
-                float a  = Mathf.Clamp01(half - 0.5f - d);
+                // |x|+|y| 거리는 대각선 방향으로 √2 배 늘어나 있어서, 경계 흐림 폭도 그만큼 맞춘다.
+                float d = (Mathf.Abs(x + 0.5f - h) + Mathf.Abs(y + 0.5f - h) - r) / 1.41421f;
+                float a = Mathf.Clamp01(0.5f - d);
                 px[y * size + x] = new Color32(255, 255, 255, (byte)(a * 255f));
             }
-
         tex.SetPixels32(px);
         tex.Apply();
         return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
     }
+
 
 
     /// <summary>색은 그대로 두고 투명도만 바꾼다.</summary>
@@ -998,13 +1006,46 @@ public class MainMenuUI : MonoBehaviour
         });
     }
 
+    // ── 최고 점수 공유 버튼 (음악 버튼 바로 왼쪽) ───────────────
+    // 음악 버튼과 같은 크기·그라데이션·그림자. 음악 버튼(오른쪽 끝 -30, 폭 100)에서 한 칸(120) 왼쪽이다.
+    void CreateShareButton(GameObject parent)
+    {
+        var obj = new GameObject("ShareButton");
+        obj.transform.SetParent(parent.transform, false);
+
+        var img = obj.AddComponent<Image>();
+        img.preserveAspect = true;
+        img.sprite         = LoadTintedIcon("Sprites/UI/share");
+
+        var btn    = obj.AddComponent<Button>();
+        var colors = btn.colors;
+        colors.normalColor      = Color.white;
+        colors.highlightedColor = new Color(1f, 1f, 1f, 0.75f);
+        colors.pressedColor     = new Color(0.8f, 0.8f, 0.8f, 1f);
+        colors.fadeDuration     = 0.1f;
+        btn.colors = colors;
+
+        var rt              = obj.GetComponent<RectTransform>();
+        rt.anchorMin        = new Vector2(1f, 1f);
+        rt.anchorMax        = new Vector2(1f, 1f);
+        rt.pivot            = new Vector2(1f, 1f);
+        rt.anchoredPosition = new Vector2(-150 + MUTE_SHADOW_PAD, -55 + MUTE_SHADOW_PAD);
+        rt.sizeDelta        = new Vector2(100 + MUTE_SHADOW_PAD * 2, 100 + MUTE_SHADOW_PAD * 2);
+        img.raycastPadding  = Vector4.one * MUTE_SHADOW_PAD;
+
+        btn.onClick.AddListener(() =>
+            SharePanel.Open(parent.transform, IsComingSoon(_currentMode) ? 0 : _currentMode));
+    }
+
     /// <summary>
     /// 음악 아이콘. 한 가지 색 그림이라 로고와 같은 그라데이션을 입히고 그림자를 깐다.
     /// 원본 여백(아래 16px)으로는 그림자가 잘리므로 둘레를 넓혀 굽는다. 켜짐·꺼짐 둘 다 한 번만 굽는다.
     /// </summary>
-    Sprite LoadMuteSprite(bool muted)
+    Sprite LoadMuteSprite(bool muted) => LoadTintedIcon(muted ? "Sprites/UI/mute" : "Sprites/UI/bgm_on");
+
+    // 한 가지 색 아이콘에 로고 그라데이션과 그림자를 입힌다. 음악·공유 버튼이 같이 쓴다.
+    Sprite LoadTintedIcon(string name)
     {
-        string name = muted ? "Sprites/UI/mute" : "Sprites/UI/bgm_on";
         if (s_btnSprites.TryGetValue(name, out var spr) && spr != null) return spr;
 
         var tex = Resources.Load<Texture2D>(name);

@@ -81,6 +81,16 @@ public class PlayGamesLeaderboard : ILeaderboardService
 
     public bool IsSignedIn => PlayGamesPlatform.Instance.IsAuthenticated();
 
+    public string PlayerName
+    {
+        get
+        {
+            if (!IsSignedIn) return null;
+            string n = PlayGamesPlatform.Instance.GetUserDisplayName();
+            return string.IsNullOrEmpty(n) ? null : n;
+        }
+    }
+
     public void SignIn(Action<bool> done)
     {
         if (IsSignedIn) { done?.Invoke(true); return; }
@@ -225,6 +235,7 @@ public class PlayGamesLeaderboard : ILeaderboardService
     // 안드로이드가 아니면 Play Games 어셈블리 자체가 없다. 화면이 안내만 띄우도록 둔다.
     public bool IsAvailable => false;
     public bool IsSignedIn  => false;
+    public string PlayerName => null;
     public void SignIn(Action<bool> done) => done?.Invoke(false);
     public void ReportScore(int mode, int score) { }
     public void LoadTop(int mode, int count, Action<LeaderboardEntry[]> done)

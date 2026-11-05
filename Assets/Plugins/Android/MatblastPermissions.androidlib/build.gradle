@@ -1,0 +1,32 @@
+// 공유 카드 저장 권한(WRITE_EXTERNAL_STORAGE, API 28 까지)만 담는 설정용 라이브러리 — ImageSaver.cs 참고.
+// 구조는 GooglePlayGamesManifest.androidlib 의 build.gradle 을 그대로 따랐다(네임스페이스만 다르다).
+apply plugin: 'com.android.library'
+
+dependencies {
+    implementation fileTree(dir: 'bin', include: ['*.jar'])
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+}
+
+android {
+    namespace "com.matblast.permissions"
+    compileSdk 36
+    buildToolsVersion "36.0.0"
+
+    defaultConfig {
+        minSdk 26
+        targetSdk 31
+    }
+
+    lint {
+        abortOnError false
+    }
+
+    sourceSets {
+        main {
+            manifest.srcFile 'AndroidManifest.xml'
+            res.srcDirs = ['res']
+            assets.srcDirs = ['assets']
+            jniLibs.srcDirs = ['libs']
+        }
+    }
+}

@@ -25,6 +25,9 @@ public interface ILeaderboardService
 
     bool IsSignedIn { get; }
 
+    /// <summary>로그인한 사람의 표시 이름(구글 플레이 게임 닉네임). 로그인 전이거나 모르면 null.</summary>
+    string PlayerName { get; }
+
     /// <summary>로그인을 시도한다. 거부해도 게임은 그대로 돌아가야 한다.</summary>
     void SignIn(Action<bool> done);
 
@@ -71,6 +74,11 @@ public class LocalLeaderboard : ILeaderboardService
 
     public bool IsAvailable => true;
     public bool IsSignedIn  => PlayerPrefs.GetInt(SIGNED_KEY, 0) == 1;
+#if UNITY_EDITOR
+    public string PlayerName => IsSignedIn ? "Player" : null;   // 에디터에서 카드 배치를 보려는 자리표시자
+#else
+    public string PlayerName => null;
+#endif
 
     public void SignIn(Action<bool> done)
     {
