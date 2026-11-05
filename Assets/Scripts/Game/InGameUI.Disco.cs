@@ -18,21 +18,21 @@ public partial class InGameUI
         if (_comboStatusText == null || _gm == null) return;
 
         int combo = _gm.Combo;
+        var pill  = _comboStatusRt.gameObject;
         if (combo <= 0)
         {
-            if (_comboStatusText.text.Length > 0) _comboStatusText.text = "";
-            _comboStatusText.rectTransform.localScale = Vector3.one;
+            if (pill.activeSelf) pill.SetActive(false);
             _comboStatusShown = -1;
             return;
         }
+        if (!pill.activeSelf) pill.SetActive(true);
 
-        // 이 함수는 매 프레임 돈다. 문자열 보간은 결과를 비교하기 전에 이미 할당되므로,
-        // 만들어 놓고 버리는 쓰레기가 프레임마다 쌓인다. 숫자가 바뀔 때만 만든다.
-        // ♪는 U+266A. ♫(U+266B)는 SCDream 폰트에 없다 — 없는 글자는 모바일 빌드에서 빈칸이 된다.
-        if (_comboStatusShown != combo)
+        // 글자는 "COMBO" 하나뿐이다. 디스코는 콤보 단계가 뜻이 없어(점수 배율 없음) 숫자를 뺐다.
+        // 콤보가 살아 있는지(켜짐)와 이번 세트가 위험한지(색)만 말한다.
+        if (_comboStatusShown != 1)
         {
-            _comboStatusShown     = combo;
-            _comboStatusText.text = combo >= COMBO_MAX ? "MAX! ♪" : $"x{combo} ♪";
+            _comboStatusShown     = 1;
+            _comboStatusText.text = "COMBO";
         }
 
         // 이번 세트를 이미 지웠으면 위험하지 않다. 무지개 블럭을 쥐고 있는 것만으로는
@@ -40,7 +40,8 @@ public partial class InGameUI
         if (_gm.ClearedThisSet)
         {
             _comboStatusText.color = COMBO_STATUS_SAFE;
-            _comboStatusText.rectTransform.localScale = Vector3.one;
+            _comboStatusRing.color = new Color(1f, 1f, 1f, 0.45f);
+            _comboStatusRt.localScale = Vector3.one;
             return;
         }
 
@@ -51,13 +52,14 @@ public partial class InGameUI
         float speed = left <= 1 ? COMBO_RISK_PULSE_LAST : COMBO_RISK_PULSE;
         float wave  = 0.5f + 0.5f * Mathf.Sin(Time.time * speed);
 
-        _comboStatusText.color = new Color(
-            COMBO_STATUS_RISK.r, COMBO_STATUS_RISK.g, COMBO_STATUS_RISK.b, 0.45f + 0.55f * wave);
+        // 글자는 빨강으로 고정, 테두리만 숨 쉬듯 밝아졌다 흐려진다. 글자까지 깜빡이면 숫자가 안 읽힌다.
+        _comboStatusText.color = COMBO_STATUS_RISK;
+        _comboStatusRing.color = new Color(
+            COMBO_STATUS_RISK.r, COMBO_STATUS_RISK.g, COMBO_STATUS_RISK.b, 0.35f + 0.65f * wave);
 
         // 밝기만 흔들면 화면이 번쩍이는 디스코에서는 묻힌다. 크기까지 같이 뛰게 해
         // 배경이 무슨 짓을 하든 눈에 걸리게 한다.
-        _comboStatusText.rectTransform.localScale =
-            Vector3.one * (1f + COMBO_STATUS_PULSE_SCALE * wave);
+        _comboStatusRt.localScale = Vector3.one * (1f + COMBO_STATUS_PULSE_SCALE * wave);
     }
 
     // 하트 게이지 갱신: 찬 만큼 채운 하트 그림, 나머지는 빈 하트 그림

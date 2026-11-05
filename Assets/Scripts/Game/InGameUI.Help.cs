@@ -51,8 +51,8 @@ public partial class InGameUI
     //   콤보 표시    COMBO_STATUS_SAFE / COMBO_STATUS_RISK
     // ● ○ ♥ ♪ 는 SCDream4·8 양쪽 cmap 에 다 있는 걸 확인하고 골랐다(♫ 는 없다).
     const string GLYPH_TG_GAUGE = "<color=#EBEBF0>●●</color><color=#4D4D66>○</color>";
-    const string GLYPH_DC_SAFE  = "<color=#FFFFFF>x2 ♪</color>";
-    const string GLYPH_DC_RISK  = "<color=#FF4757>x2 ♪</color>";
+    const string GLYPH_DC_SAFE  = "<color=#FFFFFF>COMBO</color>";
+    const string GLYPH_DC_RISK  = "<color=#FF4757>COMBO</color>";
 
     GameObject    _helpOverlay;   // 처음 누를 때 한 번 세우고 그 뒤로는 켜고 끄기만 한다
     RectTransform _helpContent;   // 스크롤되는 알맹이. 줄은 전부 여기에 붙는다
@@ -288,7 +288,8 @@ public partial class InGameUI
             if (kind == HelpIcon.Combo)
             {
                 t.font      = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
-                t.fontStyle = FontStyle.BoldAndItalic;
+                t.fontStyle = FontStyle.Bold;
+                t.fontSize  = COMBO_STATUS_FONT;   // 실제 상태등 숫자 크기와 같게
             }
         }
 

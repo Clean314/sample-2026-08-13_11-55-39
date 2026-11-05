@@ -10,28 +10,30 @@ public partial class InGameUI
 {
 
     // ── 연속 클리어 콤보 안내 ──────────────────────────────────
-    // 줄을 지우는 순간 화면 가운데 위쪽에 커졌다 떠오르며 사라지는 문구. 소리는 붙이지 않는다 —
-    // 클리어음·배치음이 이미 울리는 자리라 하나 더 얹으면 소리가 뭉개진다.
+    // 줄을 지우는 순간 판 위쪽에 뜨는 문구. 작은 "COMBO" 위에 큰 숫자, 뒤에는 흐린 어두운 번짐.
+    // 숫자가 살짝 크게 나왔다가 제자리에 앉고, 떠 있는 동안 조금씩 위로 떠오르며 옅어진다.
+    // 예전엔 기울인 "x3" 을 각진 검정 판에 얹었는데 판이 먼저 보여서 투박했다.
+    // 소리는 붙이지 않는다 — 클리어음·배치음이 이미 울리는 자리라 하나 더 얹으면 소리가 뭉개진다.
     void ShowComboPopup(int combo)
     {
         if (combo < COMBO_MIN) return;
+        // 디스코는 콤보 단계가 점수와 상관없다(GameManager.AddLineScore). 숫자를 띄우면 뜻 없는
+        // 숫자만 커진다. 콤보가 살아 있는지는 하트 옆 상태등이 늘 보여 준다.
+        if (ModeSession.IsDisco) return;
 
         // 한 세트 안에서 여러 번 지우면 같은 값으로 계속 불린다(무지개 연쇄는 0.15초 간격).
         // 그때마다 다시 띄우면 같은 숫자가 제자리에서 깜빡인다. 값이 그대로면 두던 걸 둔다.
         if (_comboPopup != null && _comboPopupValue == combo) return;
         if (_comboPopup != null) Destroy(_comboPopup);
 
-        // 색·크기 단계는 COMBO_MAX까지. 그보다 높은 콤보는 마지막 단계를 계속 쓴다.
+        // 크기 단계는 COMBO_MAX까지. 그보다 높은 콤보는 마지막 단계를 계속 쓴다.
         int tier = Mathf.Min(combo, COMBO_MAX) - COMBO_MIN;
 
-        // 상한에 닿으면 숫자 대신 MAX!. 그 위로는 보너스도 안 오르므로 숫자만 커지면 거짓말이 된다.
+        // 상한에 닿으면 숫자 대신 MAX. 그 위로는 보너스도 안 오르므로 숫자만 커지면 거짓말이 된다.
         bool  atMax = combo >= COMBO_MAX;
         Color color = atMax ? COMBO_COLOR_MAX : COMBO_COLOR;
         int   size  = COMBO_FONT_BASE + tier * COMBO_FONT_STEP;
 
-        // 루트는 그래픽 없는 빈 컨테이너다. UGUI는 부모를 먼저 그리고 자식을 그 위에 얹으므로,
-        // 배경판을 글자 뒤에 두려면 글자도 자식이어야 한다(루트에 Text를 달면 판이 위로 온다).
-        // 자리는 고정이다 — 떠오르는 움직임 없이 그 자리에서 커졌다 옅어지기만 한다.
         var go = new GameObject("ComboPopup");
         go.transform.SetParent(_canvas.transform, false);
         go.transform.SetAsLastSibling();
@@ -42,71 +44,95 @@ public partial class InGameUI
         UIEffects.SubCanvas(go);
         rt.anchorMin        = rt.anchorMax = new Vector2(0.5f, 0.5f);
         rt.pivot            = new Vector2(0.5f, 0.5f);
-        rt.sizeDelta        = new Vector2(900, 220);
+        rt.sizeDelta        = new Vector2(900, 260);
         rt.anchoredPosition = COMBO_POS;
 
-        var labelGo = new GameObject("Label");
-        labelGo.transform.SetParent(go.transform, false);
-        var txt           = labelGo.AddComponent<Text>();
-        txt.font          = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
-        txt.fontSize      = size;   // 콤보가 커질수록 큼직하게
-        txt.fontStyle     = FontStyle.BoldAndItalic;
-        txt.alignment     = TextAnchor.MiddleCenter;
-        txt.raycastTarget = false;
-        txt.text          = atMax ? "MAX!" : $"x{combo}";
-        txt.color         = color;
+        // 뒤 번짐 — 가장자리가 흐려 사라지는 어두운 사각 보케(디스코 반사 타일과 같은 그림).
+        var glowGo = new GameObject("Glow");
+        glowGo.transform.SetParent(go.transform, false);
+        var glow = glowGo.AddComponent<Image>();
+        glow.sprite        = _comboGlowSprite != null ? _comboGlowSprite : (_comboGlowSprite = MakeTileSprite(128));
+        glow.color         = new Color(0.02f, 0.02f, 0.05f, COMBO_GLOW_ALPHA);
+        glow.raycastTarget = false;
+        var glowRt = glow.rectTransform;
+        glowRt.sizeDelta = new Vector2(520f, 340f);
 
-        var labelRt              = labelGo.GetComponent<RectTransform>();
-        labelRt.anchorMin        = labelRt.anchorMax = new Vector2(0.5f, 0.5f);
-        labelRt.pivot            = new Vector2(0.5f, 0.5f);
-        labelRt.sizeDelta        = new Vector2(900, 220);
-        labelRt.anchoredPosition = Vector2.zero;
+        // 작은 "COMBO" — 숫자 위. 숫자보다 옅게.
+        var cap = ComboLabel(go.transform, "COMBO", COMBO_CAPTION_FONT,
+                             new Color(color.r, color.g, color.b, 0.75f), new Vector2(0f, size * 0.5f + 12f));
 
-        // 배경판. 어떤 배경 위에서도 글자가 읽히게 검정을 깐다.
-        // 글자 실제 폭(preferredWidth)에 여백을 더해 감싼다 — x2와 MAX!는 폭이 꽤 다르다.
-        float plateW = txt.preferredWidth + COMBO_PLATE_PAD_X * 2f;
-        float plateH = size * 1.16f + COMBO_PLATE_PAD_Y * 2f;
+        // 큰 숫자 — 반듯하게(기울이지 않는다)
+        var num = ComboLabel(go.transform, atMax ? "MAX" : combo.ToString(), size, color, new Vector2(0f, -10f));
 
-        var plateGo = new GameObject("Plate");
-        plateGo.transform.SetParent(go.transform, false);
-        plateGo.transform.SetAsFirstSibling();   // 글자·선보다 먼저 = 뒤에 깔린다
-        var plateImg           = plateGo.AddComponent<Image>();
-        plateImg.sprite        = _spr110;   // 9-slice 보더가 있어 늘려도 모서리가 유지된다
-        plateImg.type          = Image.Type.Sliced;
-        plateImg.color         = new Color(0.02f, 0.02f, 0.04f, COMBO_PLATE_ALPHA);
-        plateImg.raycastTarget = false;
+        // 밝은 배경(토글 흰 방·디스코 화이트아웃)에서 흰 글자가 묻히지 않게 아래로 떨어지는 그림자를 깐다.
+        // 윤곽선은 쓰지 않는다 — 글자 둘레를 검게 두르면 예전 상태등처럼 뭉개져 투박해진다.
+        // 유니티 그림자는 흐려지지 않아서, 가까운 진한 것과 먼 옅은 것 두 겹을 겹쳐 번지는 느낌을 낸다.
+        AddSoftShadow(cap, 2f);
+        AddSoftShadow(num, 4f);
 
-        var plateRt              = plateGo.GetComponent<RectTransform>();
-        plateRt.anchorMin        = plateRt.anchorMax = new Vector2(0.5f, 0.5f);
-        plateRt.pivot            = new Vector2(0.5f, 0.5f);
-        plateRt.sizeDelta        = new Vector2(plateW, plateH);
-        plateRt.anchoredPosition = Vector2.zero;   // 글자가 가운데 정렬이라 판도 중앙
-
-        // 알파는 CanvasGroup 하나로 몬다. 판과 글자에 따로 걸면 둘이 어긋난다.
+        // 알파는 CanvasGroup 하나로 몬다. 번짐과 글자에 따로 걸면 둘이 어긋난다.
         var cg   = go.AddComponent<CanvasGroup>();
-        cg.alpha = 1f;
+        cg.alpha = 0f;
 
-        StartCoroutine(ComboPopupRoutine(rt, cg));
+        StartCoroutine(ComboPopupRoutine(rt, cg, num.rectTransform));
     }
 
-    IEnumerator ComboPopupRoutine(RectTransform rt, CanvasGroup cg)
+    Sprite _comboGlowSprite;
+
+    // 두 겹 그림자: 가까이 진하게(dist) + 멀리 옅게(dist×2).
+    static void AddSoftShadow(Text t, float dist)
+    {
+        var near = t.gameObject.AddComponent<Shadow>();
+        near.effectColor    = new Color(0f, 0f, 0f, 0.55f);
+        near.effectDistance = new Vector2(0f, -dist);
+        var far = t.gameObject.AddComponent<Shadow>();
+        far.effectColor     = new Color(0f, 0f, 0f, 0.25f);
+        far.effectDistance  = new Vector2(0f, -dist * 2f);
+    }
+
+    Text ComboLabel(Transform parent, string text, int size, Color color, Vector2 pos)
+    {
+        var lg = new GameObject("Label");
+        lg.transform.SetParent(parent, false);
+        var t = lg.AddComponent<Text>();
+        t.font          = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
+        t.fontSize      = size;
+        t.fontStyle     = FontStyle.Bold;
+        t.alignment     = TextAnchor.MiddleCenter;
+        t.raycastTarget = false;
+        t.text          = text;
+        t.color         = color;
+        t.horizontalOverflow = HorizontalWrapMode.Overflow;
+        t.verticalOverflow   = VerticalWrapMode.Overflow;
+        var lrt = t.rectTransform;
+        lrt.sizeDelta        = new Vector2(900, size * 1.3f);
+        lrt.anchoredPosition = pos;
+        return t;
+    }
+
+    IEnumerator ComboPopupRoutine(RectTransform rt, CanvasGroup cg, RectTransform num)
     {
         float elapsed = 0f;
-
         while (elapsed < COMBO_SEC)
         {
             if (rt == null) yield break;   // 다음 콤보가 이미 치웠다
             elapsed += Time.deltaTime;
-            float t  = Mathf.Clamp01(elapsed / COMBO_SEC);
+            float t = Mathf.Clamp01(elapsed / COMBO_SEC);
 
-            // 튀어나오듯 1.35배까지 커졌다가 제자리로. 앞뒤 절반씩 나눠 쓴다.
-            float half  = COMBO_POP_SEC * 0.5f;
-            float scale = elapsed < half
-                ? Mathf.Lerp(0.55f, 1.35f, elapsed / half)
-                : Mathf.Lerp(1.35f, 1f, Mathf.Clamp01((elapsed - half) / half));
-            rt.localScale = Vector3.one * scale;
+            // 숫자: 1.25배로 나와서 살짝 넘쳤다가(0.96) 제자리. 통통 튀지 않게 한 번만 넘친다.
+            float p = Mathf.Clamp01(elapsed / COMBO_POP_SEC);
+            float s = p < 0.6f ? Mathf.Lerp(1.25f, 0.96f, Smooth01(p / 0.6f))
+                               : Mathf.Lerp(0.96f, 1f,    Smooth01((p - 0.6f) / 0.4f));
+            num.localScale = Vector3.one * s;
 
-            cg.alpha = t < COMBO_HOLD ? 1f : 1f - (t - COMBO_HOLD) / (1f - COMBO_HOLD);
+            // 통째로 천천히 떠오른다 (빨리 시작해 느려진다)
+            float rise = 1f - (1f - t) * (1f - t);
+            rt.anchoredPosition = COMBO_POS + new Vector2(0f, COMBO_RISE * rise);
+
+            // 0.06초에 걸쳐 나타났다가, COMBO_HOLD 뒤로 옅어진다
+            float aIn  = Mathf.Clamp01(elapsed / 0.06f);
+            float aOut = t < COMBO_HOLD ? 1f : 1f - (t - COMBO_HOLD) / (1f - COMBO_HOLD);
+            cg.alpha = aIn * aOut;
 
             yield return null;
         }
@@ -117,6 +143,8 @@ public partial class InGameUI
             Destroy(rt.gameObject);
         }
     }
+
+    static float Smooth01(float x) { x = Mathf.Clamp01(x); return x * x * (3f - 2f * x); }
 
     // ── 디스코 무지개 블럭: 탭 → 가로세로 클리어 + 파티클 폭발 ──
     // 보드 반영(ActivateRainbowBlock)이 OnStateChanged를 거쳐 기존 줄 클리어 연출을 띄우고,

@@ -138,14 +138,17 @@ public partial class InGameUI : MonoBehaviour
     // 표시·색·크기가 모두 여기서 멈춘다. 콤보 보너스 점수의 상한과 같은 상수를 써서
     // "x5인데 점수만 더 오르는" 어긋남이 생기지 않게 한다.
     const int   COMBO_MAX  = GameManager.COMBO_TIER_MAX;
-    const float COMBO_SEC  = 0.85f;  // ── 조정 손잡이: 문구가 떠 있는 시간(초) ──
+    const float COMBO_SEC  = 0.9f;   // ── 조정 손잡이: 문구가 떠 있는 시간(초) ──
     const float COMBO_HOLD = 0.55f;  // ── 조정 손잡이: 이 비율까지 또렷, 이후 옅어짐 ──
-    const float COMBO_POP_SEC = 0.14f;   // 커졌다가(1.35배) 제자리로 돌아오는 데 걸리는 시간
+    const float COMBO_POP_SEC = 0.2f;    // 숫자가 살짝 크게 나왔다가 제자리로 앉는 시간
+    const float COMBO_RISE    = 26f;     // ── 조정 손잡이: 떠 있는 동안 위로 떠오르는 거리 ──
     static readonly Vector2 COMBO_POS = new Vector2(0, 300);
 
-    // 글자 크기: 단계마다 조금씩 커진다 (x2 → 62, x3 → 71, x4 → 80, MAX! → 89)
-    const int   COMBO_FONT_BASE = 62;    // ── 조정 손잡이: x2일 때의 글자 크기 ──
-    const int   COMBO_FONT_STEP = 9;     // ── 조정 손잡이: 단계마다 커지는 폭 ──
+    // 숫자 크기: 단계마다 조금씩 커진다 (2 → 104, 3 → 114, 4 → 124, MAX → 134).
+    // 위의 "COMBO" 글자는 크기를 고정해 둔다 — 같이 커지면 숫자가 커지는 게 안 읽힌다.
+    const int   COMBO_FONT_BASE = 104;   // ── 조정 손잡이: 콤보 2일 때의 숫자 크기 ──
+    const int   COMBO_FONT_STEP = 10;    // ── 조정 손잡이: 단계마다 커지는 폭 ──
+    const int   COMBO_CAPTION_FONT = 30; // "COMBO" 글자 크기
     // 조준 줄 색. 한 가지뿐이다 — 어느 줄이든 고를 수 있으므로, 줄마다 색을 달리하면
     // 되는 줄/안 되는 줄로 읽힌다. 이 띠는 "지금 이 줄을 겨누고 있다"만 말한다.
     static readonly Color LINE_HI = new Color(0.35f, 0.68f, 1.00f, 0.32f);
@@ -153,16 +156,15 @@ public partial class InGameUI : MonoBehaviour
     // 검은 배경(화이트 모드) 위에서 띠 알파에 곱하는 값. 밝은 배경과 세기를 맞춘다.
     const float LINE_HI_DARK_BG = 0.62f;
 
-    // 검정 배경판. 디스코 화이트아웃·토글 블랙모드처럼 밝은 배경 위에서도 글자가 읽히게 한다.
-    // 판이 대비를 만들어 주므로 그림자(Shadow)는 따로 안 깐다.
-    const float COMBO_PLATE_ALPHA = 0.85f; // ── 조정 손잡이: 배경판 불투명도 ──
-    const float COMBO_PLATE_PAD_X = 38f;   // ── 조정 손잡이: 좌우 여백(px) ──
-    const float COMBO_PLATE_PAD_Y = 20f;   // ── 조정 손잡이: 위아래 여백(px) ──
+    // 글자 뒤에 까는 어두운 번짐. 디스코 화이트아웃·토글 흰 방처럼 밝은 배경 위에서도 읽히게 한다.
+    // 예전엔 각진 검정 판이었는데 판이 글자보다 먼저 눈에 들어와 투박했다. 가장자리가 흐려
+    // 사라지는 번짐이라 어떤 배경 위에서도 "판"으로 보이지 않는다.
+    const float COMBO_GLOW_ALPHA = 0.6f;   // ── 조정 손잡이: 뒤 번짐 진하기 ──
 
-    // x2~x4는 흰 글자, MAX!만 파랑. 색을 한 군데만 쓰면 상한에 닿았다는 게 확실히 도드라진다.
+    // 2~4 는 흰 숫자, MAX 만 노랑(최고 점수 BEST 와 같은 색). 상한에 닿았다는 게 한 군데서만 도드라진다.
     // 단계별로 색을 바꾸면 네 가지 색이 번갈아 뜨면서 오히려 산만해진다.
     static readonly Color COMBO_COLOR     = Color.white;
-    static readonly Color COMBO_COLOR_MAX = new Color(0.35f, 0.70f, 1.00f);
+    static readonly Color COMBO_COLOR_MAX = new Color(1f, 0.85f, 0.3f);
 
     GameObject  _comboPopup;      // 떠 있는 팝업 하나. 값이 바뀌면 이전 것을 치우고 새로 띄운다.
     int         _comboPopupValue; // 그 팝업이 보여 주고 있는 콤보 수
@@ -171,14 +173,18 @@ public partial class InGameUI : MonoBehaviour
     // 디스코는 콤보를 유지해야 살아남는다. 지금 콤보가 몇인지, 그리고 이번 세트가
     // 아직 위험한지를 상시로 보여 준다. 남은 조각 수는 트레이가 이미 보여 주므로 여기서 안 센다.
     // 첫 클리어 전(콤보 0)에는 규칙이 아직 안 걸리므로 아무것도 띄우지 않는다.
-    Text _comboStatusText;
+    Text          _comboStatusText;
+    RectTransform _comboStatusRt;     // 알약 모양 묶음. 경고일 때 이걸 통째로 키웠다 줄인다
+    Image         _comboStatusRing;   // 알약 테두리. 안전하면 흰색, 위험하면 빨강
     // 하트 게이지와 같은 줄, 오른쪽. y는 글자 상단 기준이라 글자를 키운 만큼 위로 올려
     // 하트와 눈높이를 맞춘다(점수 하단 -315와 그리드 백드롭 상단 -385 사이 띠).
     // 상자 정중앙에 맞추면 글꼴이 아래에 비워 두는 디센더 자리 때문에 눈에는 처져 보인다.
     static readonly Vector2 COMBO_STATUS_POS  = new Vector2(312, -292);
     static readonly Color   COMBO_STATUS_SAFE = Color.white;
     static readonly Color   COMBO_STATUS_RISK = new Color(1f, 0.28f, 0.34f);
-    const int   COMBO_STATUS_FONT        = 64;    // ── 조정 손잡이: 상태등 글자 크기 ──
+    const int   COMBO_STATUS_FONT        = 32;    // ── 조정 손잡이: 상태등 "COMBO" 글자 크기 ──
+    const int   COMBO_STATUS_W           = 180;   // ── 조정 손잡이: 알약 크기 ──
+    const int   COMBO_STATUS_H           = 66;
     const float COMBO_RISK_PULSE         = 4.5f;  // ── 조정 손잡이: 경고 깜빡임 속도 ──
     const float COMBO_RISK_PULSE_LAST    = 9f;    // 마지막 조각 하나가 남았을 때의 속도
     const float COMBO_STATUS_PULSE_SCALE = 0.10f; // 경고일 때 같이 커졌다 작아지는 폭
@@ -858,38 +864,73 @@ public partial class InGameUI : MonoBehaviour
 
             // 콤보 상태등 — 하트와 같은 높이의 오른쪽 자리. 하트(무지개 진행도)와 역할이
             // 다르므로 섞지 않고 나란히 둔다.
+            // 알약 모양 배지: 어두운 속 + 얇은 테두리 + "COMBO".
+            // 예전엔 기울인 굵은 글자 "x3 ♪" 에 검은 외곽선·그림자를 둘렀다. 화이트아웃에서도 읽히긴
+            // 했지만 외곽선이 글자를 뭉개 투박했다. 속을 어둡게 채운 배지면 외곽선 없이도 어디서든 읽힌다.
             var csGo = new GameObject("ComboStatus");
             csGo.transform.SetParent(_canvas.transform, false);
-            _comboStatusText               = csGo.AddComponent<Text>();
-            _comboStatusText.font          = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
-            _comboStatusText.fontSize      = COMBO_STATUS_FONT;
-            _comboStatusText.fontStyle     = FontStyle.BoldAndItalic;
-            _comboStatusText.alignment     = TextAnchor.MiddleCenter;
-            _comboStatusText.raycastTarget = false;
-            _comboStatusText.text          = "";
-            // 글자가 상자보다 커도 잘리지 않게. 이 자리는 점수와 그리드 사이 70px 띠라
-            // 상자를 글자에 맞춰 키울 여유가 없다.
-            _comboStatusText.horizontalOverflow = HorizontalWrapMode.Overflow;
-            _comboStatusText.verticalOverflow   = VerticalWrapMode.Overflow;
-
-            var csShadow            = csGo.AddComponent<Shadow>();
-            csShadow.effectColor    = new Color(0f, 0f, 0f, 0.75f);
-            csShadow.effectDistance = new Vector2(4f, -4f);
-
-            // 디스코는 화이트아웃이 수시로 터진다. 그림자만으로는 그 순간 글자가 배경에
-            // 녹아 사라져서 검은 외곽선을 같이 두른다. 팝업처럼 검정 판을 깔면 확실하지만
-            // 여기는 하트와 같은 띠에 얹혀 있어 판이 들어갈 높이가 없다.
-            var csOutline            = csGo.AddComponent<Outline>();
-            csOutline.effectColor    = new Color(0f, 0f, 0f, 0.85f);
-            csOutline.effectDistance = new Vector2(3f, 3f);
-
-            var csRt              = csGo.GetComponent<RectTransform>();
+            var csRt              = csGo.AddComponent<RectTransform>();
             csRt.anchorMin        = new Vector2(0.5f, 1f);
             csRt.anchorMax        = new Vector2(0.5f, 1f);
             csRt.pivot            = new Vector2(0.5f, 1f);
             csRt.anchoredPosition = COMBO_STATUS_POS;
             csRt.sizeDelta        = new Vector2(360, 84);
+
+            // 알약은 상자 가운데. 경고 맥동은 알약 가운데를 기준으로 커져야 해서 한 겹 더 둔다.
+            var pillGo = new GameObject("Pill");
+            pillGo.transform.SetParent(csGo.transform, false);
+            _comboStatusRt = pillGo.AddComponent<RectTransform>();
+            _comboStatusRt.sizeDelta = new Vector2(COMBO_STATUS_W, COMBO_STATUS_H);
+            UIEffects.SubCanvas(pillGo);   // 경고일 때 매 프레임 깜빡인다
+
+            var fill = NewPillImage("Fill", pillGo.transform, fillPill: true);
+            fill.color = new Color(0.03f, 0.03f, 0.06f, 0.72f);
+            _comboStatusRing = NewPillImage("Ring", pillGo.transform, fillPill: false);
+
+            var tGo = new GameObject("Label");
+            tGo.transform.SetParent(pillGo.transform, false);
+            _comboStatusText               = tGo.AddComponent<Text>();
+            _comboStatusText.font          = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
+            _comboStatusText.fontSize      = COMBO_STATUS_FONT;
+            _comboStatusText.fontStyle     = FontStyle.Bold;
+            _comboStatusText.alignment     = TextAnchor.MiddleCenter;
+            _comboStatusText.raycastTarget = false;
+            _comboStatusText.text          = "";
+            _comboStatusText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            _comboStatusText.verticalOverflow   = VerticalWrapMode.Overflow;
+            var tRt = tGo.GetComponent<RectTransform>();
+            tRt.anchorMin = Vector2.zero;
+            tRt.anchorMax = Vector2.one;
+            tRt.offsetMin = tRt.offsetMax = Vector2.zero;
+
+            // 위아래 가운데. 상자(84) 위끝이 기준점이라 아래로 반만큼 내린다.
+            _comboStatusRt.anchorMin = _comboStatusRt.anchorMax = new Vector2(0.5f, 0.5f);
+            _comboStatusRt.anchoredPosition = Vector2.zero;
+            pillGo.SetActive(false);   // 콤보 0 에는 아무것도 안 띄운다
         }
+    }
+
+    // 콤보 상태등 알약. 안티에일리어싱된 둥근 모양을 실제 크기로 굽는다(늘리지 않는다).
+    Image NewPillImage(string name, Transform parent, bool fillPill)
+    {
+        int w = COMBO_STATUS_W, h = COMBO_STATUS_H;
+        var px  = UIEffects.RoundedRing(w, h, h * 0.5f, fillPill ? h : 3f, Color.white, Color.white);
+        var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+        tex.filterMode = FilterMode.Bilinear;
+        tex.wrapMode   = TextureWrapMode.Clamp;
+        tex.SetPixels32(px);
+        tex.Apply(false, true);
+
+        var go = new GameObject(name);
+        go.transform.SetParent(parent, false);
+        var img = go.AddComponent<Image>();
+        img.sprite        = UIEffects.ToSprite(tex);
+        img.raycastTarget = false;
+        var rt = img.rectTransform;
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = rt.offsetMax = Vector2.zero;
+        return img;
     }
 
     // 메인 화면 왼쪽 위 버튼(언어 선택)과 같은 모양 — 그림자 진 그라데이션 테두리, 속은 비어 있다.

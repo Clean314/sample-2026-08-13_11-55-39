@@ -96,9 +96,18 @@ public class GameManager : MonoBehaviour
         _clearedThisSet = true;
         _combo++;
 
-        int tier = Mathf.Min(_combo, COMBO_TIER_MAX);
-        Score += lines * 100 * _combo
-               + (tier >= 2 ? COMBO_BONUS_STEP * tier * (tier - 1) : 0);
+        // 디스코는 콤보가 "유지해야 사는 규칙"이지 쌓는 점수가 아니다. 매 세트 지워야 하니
+        // 살아 있는 한 콤보는 계속 오르기만 해서 단계가 아무 뜻이 없다. 배율·보너스 없이 줄 수만 센다.
+        if (ModeSession.IsDisco)
+        {
+            Score += lines * 100;
+        }
+        else
+        {
+            int tier = Mathf.Min(_combo, COMBO_TIER_MAX);
+            Score += lines * 100 * _combo
+                   + (tier >= 2 ? COMBO_BONUS_STEP * tier * (tier - 1) : 0);
+        }
 
         OnComboCleared?.Invoke(_combo);
     }
