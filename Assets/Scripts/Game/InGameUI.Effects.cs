@@ -505,101 +505,18 @@ public partial class InGameUI
     {
         var cells = CollectClearedCells(_gm.LastClearedRows, _gm.LastClearedCols);
 
-        // 디스코 일반 클리어에만 음표를 남긴다. 무지개 블럭 발동은 자체 파티클이 있어 제외.
-        // 음표는 블록이 사라진 뒤에도 한참 남아 있으므로 기다리지 않고 따로 돌린다.
-        if (ModeSession.IsDisco && !_rainbowActivating)
-            StartCoroutine(PlayClearNotes(cells));
-
-        yield return StartCoroutine(FlashAndFade(cells));
+        // 노말은 블록이 조각나 부서지는 연출(InGameUI.ClearFX.cs), 디스코는 블록이 톡 터지며
+        // 무지개 불꽃이 퍼지는 연출(InGameUI.DiscoClearFX.cs). 무지개 발동과 나머지 모드는 기존 페이드.
+        if (ModeSession.IsNormal)
+            yield return StartCoroutine(NormalLineClearFX(cells));
+        else if (ModeSession.IsDisco && !_rainbowActivating)
+            yield return StartCoroutine(DiscoLineClearFX(cells));
+        else
+            yield return StartCoroutine(FlashAndFade(cells));
         RefreshGrid();
 
         if (ModeSession.IsIce)
             yield return StartCoroutine(IceSlideAndChain());
-    }
-
-    // ── 디스코 일반 클리어: 비워진 칸에 남는 음표 ────────────────────
-    // 지워진 칸 자리에 음표가 그대로 떠서 잠깐 머물다 옅어진다.
-    //
-    // FX 루트는 무지개 폭발과 같은 이유로 캔버스 최상단 자식에 단다 — 그리드 아래에 두면
-    // 나중에 생성된 캔버스 자식(트레이·점수)에 가려지고, 음표는 그리드 위로 올라가므로 특히 겹친다.
-    // 좌표는 그리드 로컬 → 캔버스인데 둘 다 화면 중앙 앵커라 그리드 오프셋만 더하면 된다.
-    // 지워진 칸마다 음표를 하나 남긴다. 칸 자리에 그대로 떠서 옅어지므로 격자를 안 벗어난다.
-    // 셀 목록은 다음 클리어에 덮어써지는 LastClearedRows/Cols에서 이미 뽑아 온 것을 받는다.
-    IEnumerator PlayClearNotes(System.Collections.Generic.HashSet<(int r, int c)> cells)
-    {
-        if (_canvas == null || _gm == null || cells == null || cells.Count == 0) yield break;
-
-        // 줄에 속해 있어도 살아남는 칸(무지개 블럭)에는 음표를 얹지 않는다 — 비지 않았으니까.
-        // 보드는 ClearFullLines에서 이미 갱신된 뒤라 지금 값이 맞다.
-        var spots = new System.Collections.Generic.List<(int r, int c)>(cells.Count);
-        foreach (var (r, c) in cells)
-            if (_gm.Board[r, c] == 0) spots.Add((r, c));
-        if (spots.Count == 0) yield break;
-
-        Vector2 gridOff = _gridRt != null ? _gridRt.anchoredPosition : Vector2.zero;
-        int n = spots.Count;
-
-        var root = new GameObject("ClearNoteFX");
-        root.transform.SetParent(_canvas.transform, false);
-        var rootRt       = root.AddComponent<RectTransform>();
-        rootRt.anchorMin = Vector2.zero;
-        rootRt.anchorMax = Vector2.one;
-        rootRt.offsetMin = rootRt.offsetMax = Vector2.zero;
-        root.transform.SetAsLastSibling();
-
-        var txts   = new Text[n];
-        var delays = new float[n];
-
-        // 글자는 칸마다 따로 뽑지 않고 번갈아 넣는다. 독립으로 뽑으면 한 줄이 전부
-        // 같은 글자로 나오는 경우가 생겨 두 종류가 보이지 않는다.
-        // 시작 글자만 무작위로 굴려 매번 같은 배열(♪♬♪♬)로 고정되지도 않게 한다.
-        int glyphOffset = Random.Range(0, NOTE_GLYPHS.Length);
-
-        for (int i = 0; i < n; i++)
-        {
-            var (r, c) = spots[i];
-
-            var go = new GameObject($"Note_{r}_{c}");
-            go.transform.SetParent(root.transform, false);
-
-            var t           = go.AddComponent<Text>();
-            t.font          = Font4();
-            t.fontSize      = NOTE_SIZE;
-            t.alignment     = TextAnchor.MiddleCenter;
-            t.text          = NOTE_GLYPHS[(i + glyphOffset) % NOTE_GLYPHS.Length];
-            t.color         = new Color(1f, 1f, 1f, 0f);
-            t.raycastTarget = false;
-
-            // 셀과 같은 자리, 셀 크기(110)에 맞춘 칸. 그리드가 (0, 80)만큼 올라가 있으므로 더한다.
-            var rt              = go.GetComponent<RectTransform>();
-            rt.anchorMin        = rt.anchorMax = new Vector2(0.5f, 0.5f);
-            rt.pivot            = new Vector2(0.5f, 0.5f);
-            rt.sizeDelta        = new Vector2(110f, 110f);
-            rt.anchoredPosition = gridOff + new Vector2(-420f + c * 120f, 420f - r * 120f);
-
-            txts[i]   = t;
-            delays[i] = Random.Range(0f, NOTE_STAGGER);   // 한꺼번에 켜지지 않게 조금씩 어긋내기
-        }
-
-        float elapsed = 0f;
-        while (elapsed < NOTE_STAGGER + NOTE_SEC)
-        {
-            elapsed += Time.deltaTime;
-            for (int i = 0; i < n; i++)
-            {
-                float t = Mathf.Clamp01((elapsed - delays[i]) / NOTE_SEC);
-
-                // 켜지고 → NOTE_HOLD까지 그대로 → 남은 구간에 옅어진다.
-                // 가장 진할 때도 NOTE_ALPHA라 뒤가 훤히 비쳐 잔상처럼 읽힌다.
-                float a = t < 0.10f ? t / 0.10f
-                        : t < NOTE_HOLD ? 1f
-                        : 1f - (t - NOTE_HOLD) / (1f - NOTE_HOLD);
-                txts[i].color = new Color(1f, 1f, 1f, Mathf.Clamp01(a) * NOTE_ALPHA);
-            }
-            yield return null;
-        }
-
-        Destroy(root);
     }
 
     System.Collections.Generic.HashSet<(int r, int c)> CollectClearedCells(
@@ -745,6 +662,8 @@ public partial class InGameUI
 
             int newLines = _gm.CheckAndClearLinesQuiet();
             if (newLines == 0) break;
+            // 슬라이드로 이어진 연쇄 클리어. OnStateChanged 를 거치지 않으니 여기서 따로 울린다.
+            Haptics.LineClear(newLines);
 
             _highScoreText.text = $"BEST  {_gm.HighScore}";
             _scoreText.text     = _gm.Score.ToString();

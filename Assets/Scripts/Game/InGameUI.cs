@@ -53,6 +53,7 @@ public partial class InGameUI : MonoBehaviour
     // 뒤집기는 이 모드의 규칙(화이트↔블랙)을 그대로 그린 동작이라 설명이 필요 없다.
     const float SWAP_FLIP_SEC     = 0.22f;    // 한 칸이 뒤집히는 데 걸리는 시간
     const float SWAP_FLIP_STAGGER = 0.028f;   // 옆 칸으로 번지는 간격
+    const float SWAP_CLEAR_PAUSE  = 0.08f;    // ── 조정 손잡이: 뒤집기가 끝나고 줄이 지워지기까지 잠깐 멈추는 시간 ──
     Coroutine   _swapFlipCo;
 
     // 안내 손 아이콘 크기와 한 번 쓸어 보이는 거리·시간.
@@ -79,18 +80,6 @@ public partial class InGameUI : MonoBehaviour
     const float SHAKE_SEC  = 0.22f;   // ── 조정 손잡이: 흔들림 길이(초) ──
     const float SHAKE_AMP  = 14f;     // ── 조정 손잡이: 시작 진폭(px, 1080 기준 해상도) ──
     const float SHAKE_FREQ = 34f;     // ── 조정 손잡이: 진동 각속도(클수록 잘게 떨린다) ──
-
-    // 일반 줄 클리어 음표 파티클 (디스코 모드 전용). PlayClearNotes 참고.
-    // SCDream4/8에는 ♫(U+266B)가 빠져 있어 ♪(U+266A)와 ♬(U+266C)만 쓴다(cmap 확인).
-    // 없는 글자를 넣으면 에디터에서는 OS 폰트로 대체돼 멀쩡히 보이다가 모바일 빌드에서 빈칸이 된다.
-    static readonly string[] NOTE_GLYPHS = { "♪", "♬" };
-    // 지워진 칸 자리에 음표를 하나씩 남겼다가 옅어지게 한다. 떠오르는 파티클보다
-    // "여기가 방금 비었다"가 또렷하게 읽히고, 격자를 벗어나지 않아 화면이 깔끔하다.
-    const float NOTE_SEC      = 0.55f;  // ── 조정 손잡이: 음표가 남아 있는 시간(초) ──
-    const int   NOTE_SIZE     = 62;     // ── 조정 손잡이: 글자 크기(px, 셀은 110) ──
-    const float NOTE_ALPHA    = 0.32f;  // ── 조정 손잡이: 가장 진할 때의 불투명도 ──
-    const float NOTE_HOLD     = 0.55f;  // ── 조정 손잡이: 이 비율까지 NOTE_ALPHA 유지, 이후 사라짐 ──
-    const float NOTE_STAGGER  = 0.07f;  // ── 조정 손잡이: 칸마다 어긋나는 시작 시각(초) ──
 
     // 무지개 블럭 발동으로 들어온 클리어인지. ActivateRainbowBlock이 OnStateChanged를 동기로
     // 부르며 일반 줄 클리어 연출을 그대로 태우기 때문에, 그쪽만 골라내려면 표시가 필요하다.
@@ -119,6 +108,19 @@ public partial class InGameUI : MonoBehaviour
     RectTransform _dragContainer;   // 집어든 조각 컨테이너 (트레이에서 분리됨)
     int           _previewRow   = -1;
     int           _previewCol   = -1;
+    bool          _snapValid;       // 이번 드래그에서 미리보기 칸이 한 번이라도 정해졌는지 (GetGridCell)
+
+    // ── 조정 손잡이: 미리보기 칸이 바뀌기까지 더 끌어야 하는 거리(칸 단위) ──
+    // 0 이면 정확히 반 칸에서 바뀐다. 올리면 경계 근처에서 손가락이 떨려도 미리보기가
+    // 왔다 갔다 하지 않는다. 너무 크면 원하는 칸으로 옮기기가 뻑뻑해진다.
+    const float SNAP_HYSTERESIS = 0.2f;
+
+    // ── 조정 손잡이: 집은 조각을 손가락 위로 띄우는 거리(캔버스 단위, 한 칸 = 120) ──
+    // 조각 그림의 가운데가 손가락보다 이만큼 위에 온다. 그림을 띄우는 곳(Update)과
+    // 놓일 칸을 계산하는 곳(GetGridCell)이 이 값 하나를 같이 써야 미리보기가 어긋나지 않는다.
+    // 예전 260 은 조각이 너무 멀리 비켜나 손과 따로 노는 느낌이었다. 지금 값이면 3칸 높이
+    // 조각의 아랫변이 손가락 끝에 살짝 걸리고, 1칸짜리는 손가락 위로 조금 떠 있다.
+    const float DRAG_LIFT = 100f;
 
 
     // ── 오디오 ──────────────────────────────────────────────────
@@ -382,8 +384,8 @@ public partial class InGameUI : MonoBehaviour
     const float DISCO_BACKDROP_ALPHA_BRIGHT = 0.92f;  // 화이트아웃 최대
     const float DISCO_BACKDROP_SCENE        = 0.45f;  // 도시·드라이빙 구간의 가중치
 
-    // 아이스 뒤로가기 버튼의 화살표. IceBackground 의 WAVE_DARK 와 같은 파랑이다.
-    static readonly Color32 ICE_BACK_BLUE = new Color32(0, 112, 216, 255);
+    // 뒤로가기 버튼 글자색. 메인 화면 버튼 글자(#e2e8f0)와 같다.
+    static readonly Color32 BACK_TEXT = new Color32(0xE2, 0xE8, 0xF0, 255);
     static readonly Color TUNNEL_COLOR     = new Color(0.30f, 0.75f, 1.00f); // skyblue (50~64s)
     static readonly Color TUNNEL_COLOR_RED = new Color(1.00f, 0.18f, 0.18f); // 81~97s 빨강
 
@@ -398,12 +400,19 @@ public partial class InGameUI : MonoBehaviour
     Sprite  _rainbowBlockSprite;
     Sprite  _burstRingSprite;                // 폭발 충격파용 얇은 링
     Sprite  _burstChipSprite;                // 폭발 조각용 작은 사각형
-    Text[]  _discoHearts;                    // 무지개 블럭까지 남은 줄 수 게이지 (♥ 텍스트)
+    Image[] _discoHearts;                    // 무지개 블럭까지 남은 줄 수 게이지 (하트 그림)
+    Sprite  _heartFull, _heartEmpty;         // Sprites/UI/heart, heart_empty
     const int   RAINBOW_BURST_COUNT = 110;   // ── 조정 손잡이: 터질 때 튀는 조각 수 ──
     const float RAINBOW_BURST_SEC   = 1.15f; // ── 조정 손잡이: 조각이 남아있는 시간 ──
     const int   RING_COUNT          = 2;     // ── 조정 손잡이: 충격파 링 개수 ──
-    static readonly Color HEART_FULL  = new Color(1.00f, 0.28f, 0.48f);
-    static readonly Color HEART_EMPTY = new Color(1.00f, 1.00f, 1.00f, 0.20f);
+    const float HEART_SIZE = 54f;   // ── 조정 손잡이: 게이지 하트 한 개의 폭(간격 78 안에 들어가야 한다). 64 는 판 위쪽 끝에 5px 까지 붙었다 ──
+    // 하트 그림자 — 메인 화면 버튼(아래로 12, 흐림 12, 0.85)과 같은 빛 방향·세기.
+    // 값은 하트 텍스처(160px) 기준이다. 화면엔 64px 로 줄어 보이므로(0.4배) 텍스처에선
+    // 그만큼 크게 준다: 아래로 15·흐림 20 → 화면에서 약 6px·8px.
+    const int   HEART_SHADOW_DROP  = 15;
+    const int   HEART_SHADOW_BLUR  = 20;
+    const float HEART_SHADOW_ALPHA = 0.85f;
+    const int   HEART_SHADOW_PAD   = HEART_SHADOW_DROP + HEART_SHADOW_BLUR;
 
     // ── 색상 상수 ───────────────────────────────────────────────
     static readonly Color BG_DARK         = new Color(0.086f, 0.082f, 0.141f); // #161524 (화이트 모드 / 기본)
@@ -662,6 +671,27 @@ public partial class InGameUI : MonoBehaviour
         }
     }
 
+    // 그림자를 구운 하트 그림. 게이지와 도움말이 같이 쓴다. 판을 다시 열 때마다 굽지 않게 들고 있는다.
+    static Sprite s_heartFullSpr, s_heartEmptySpr;
+
+    static Sprite HeartSprite(bool full)
+    {
+        var cached = full ? s_heartFullSpr : s_heartEmptySpr;
+        if (cached != null) return cached;
+
+        var tex = Resources.Load<Texture2D>(full ? "Sprites/UI/heart" : "Sprites/UI/heart_empty");
+        if (tex == null) return null;
+        // 그림이 가장자리까지 차 있어서 사방을 넓혀 굽는다. 넓힌 만큼 표시 크기도 키운다(HeartShowSize).
+        var spr = UIEffects.ToSprite(UIEffects.WithDropShadow(
+            UIEffects.ReadPixels(tex), tex.width, tex.height, HEART_SHADOW_PAD,
+            new Vector2Int(0, -HEART_SHADOW_DROP), HEART_SHADOW_BLUR, HEART_SHADOW_ALPHA, Color.black));
+        if (full) s_heartFullSpr = spr; else s_heartEmptySpr = spr;
+        return spr;
+    }
+
+    // 하트 자체가 heartW 폭으로 보이게 하려면 그림자 여백까지 포함한 그림을 이만큼 그려야 한다.
+    static float HeartShowSize(float heartW) => heartW * (160f + HEART_SHADOW_PAD * 2) / 160f;
+
     Sprite LoadSpriteFromPath(string path)
     {
         var tex = Resources.Load<Texture2D>(path);
@@ -700,7 +730,7 @@ public partial class InGameUI : MonoBehaviour
         var obj = new GameObject("Background");
         obj.transform.SetParent(_canvas.transform, false);
         _bgImage = obj.AddComponent<Image>();
-        // 아이스는 이 한 장이 하늘이자 바다다. IceBackground 가 그 위에 구름·빙산·물결만 얹는다.
+        // 아이스는 이 한 장이 하늘 바탕이다. IceBackground 가 그 위에 하늘 그라데이션·건물·눈을 얹는다.
         _bgImage.color = ModeSession.IsDisco ? new Color(0.05f, 0.03f, 0.10f)
                        : ModeSession.IsIce   ? (Color)IceBackground.SKY
                        :                       BG_DARK;
@@ -799,26 +829,27 @@ public partial class InGameUI : MonoBehaviour
             hRootRt.sizeDelta        = new Vector2(n * 78, 70);
             _heartRootRt             = hRootRt;
 
-            _discoHearts = new Text[n];
+            // 채운 하트와 빈 하트 그림을 갈아 끼운다. 둘 다 색이 이미 칠해진 그림이라 tint 하지 않는다.
+            _heartFull  = HeartSprite(true);
+            _heartEmpty = HeartSprite(false);
+
+            _discoHearts = new Image[n];
             for (int i = 0; i < n; i++)
             {
                 var hGo = new GameObject($"Heart_{i}");
                 hGo.transform.SetParent(heartRoot.transform, false);
-                var t           = hGo.AddComponent<Text>();
-                t.font          = Font4();
-                t.fontSize      = 58;
-                t.alignment     = TextAnchor.MiddleCenter;
-                t.text          = "♥";   // SCDream4/8 모두 U+2665 글리프를 갖고 있음(cmap 확인)
-                t.color         = HEART_EMPTY;
-                t.raycastTarget = false;
+                var img            = hGo.AddComponent<Image>();
+                img.sprite         = _heartEmpty;
+                img.preserveAspect = true;
+                img.raycastTarget  = false;
 
                 var hRt              = hGo.GetComponent<RectTransform>();
                 hRt.anchorMin        = new Vector2(0.5f, 0.5f);
                 hRt.anchorMax        = new Vector2(0.5f, 0.5f);
                 hRt.pivot            = new Vector2(0.5f, 0.5f);
                 hRt.anchoredPosition = new Vector2((i - (n - 1) * 0.5f) * 78f, 0f);
-                hRt.sizeDelta        = new Vector2(72, 72);
-                _discoHearts[i]      = t;
+                hRt.sizeDelta        = Vector2.one * HeartShowSize(HEART_SIZE);
+                _discoHearts[i]      = img;
             }
 
             // 콤보 상태등 — 하트와 같은 높이의 오른쪽 자리. 하트(무지개 진행도)와 역할이
@@ -857,21 +888,24 @@ public partial class InGameUI : MonoBehaviour
         }
     }
 
+    // 메인 화면 왼쪽 위 버튼(언어 선택)과 같은 모양 — 그림자 진 그라데이션 테두리, 속은 비어 있다.
+    // 모든 모드가 같은 버튼을 쓴다. 겉모양은 MainMenuUI.CreateButtonSkin 한 곳에서 정해진다.
     void BuildBackButton()
     {
+        const int W = 160, H = 80;
+
         var obj = new GameObject("BackButton");
         obj.transform.SetParent(_canvas.transform, false);
-
-        // 아이스는 밝은 하늘 위라 어두운 판이 겉돈다. 흰 판에 파란 화살표로 뒤집으면
-        // 얼음-바다 팔레트에 맞으면서 대비도 4.9:1 로 넉넉하다.
-        bool iceBack = ModeSession.IsIce;
-
-        var img = obj.AddComponent<Image>();
-        img.sprite = MakeRoundedSprite(100, 80, 20);
-        img.type   = Image.Type.Sliced;
-        img.color  = iceBack ? Color.white : new Color(0.25f, 0.25f, 0.35f);
+        var skin = MainMenuUI.CreateButtonSkin(obj, W, H, 30, 3);
 
         var btn = obj.AddComponent<Button>();
+        btn.targetGraphic = skin;
+        var colors = btn.colors;
+        colors.normalColor      = Color.white;
+        colors.highlightedColor = new Color(1f, 1f, 1f, 0.75f);
+        colors.pressedColor     = new Color(0.75f, 0.75f, 0.75f, 1f);
+        colors.fadeDuration     = 0.1f;
+        btn.colors = colors;
         btn.onClick.AddListener(() =>
         {
             _gm?.SaveGame();
@@ -883,16 +917,20 @@ public partial class InGameUI : MonoBehaviour
         rt.anchorMax        = new Vector2(0f, 1f);
         rt.pivot            = new Vector2(0f, 1f);
         rt.anchoredPosition = new Vector2(30, -55);
-        rt.sizeDelta        = new Vector2(100, 80);
+        rt.sizeDelta        = new Vector2(W, H);
 
         var txtGo = new GameObject("Text");
         txtGo.transform.SetParent(obj.transform, false);
         var txt = txtGo.AddComponent<Text>();
-        txt.font      = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
-        txt.fontSize  = 50;
-        txt.color     = iceBack ? (Color)ICE_BACK_BLUE : Color.white;
-        txt.alignment = TextAnchor.MiddleCenter;
-        txt.text      = "<";
+        txt.font          = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
+        txt.fontSize      = 48;
+        txt.fontStyle     = FontStyle.Bold;
+        txt.color         = BACK_TEXT;
+        txt.alignment     = TextAnchor.MiddleCenter;
+        txt.raycastTarget = false;
+        // ← (U+2190) 는 SCDream8 에 들어 있다. ⬅ (U+2B05) 같은 굵은 화살표는 폰트에 없어서
+        // 기기마다 시스템 이모지나 네모(□)로 바뀐다 — 쓰기 전에 폰트에 글자가 있는지 확인할 것.
+        txt.text          = "←";
         var txtRt = txtGo.GetComponent<RectTransform>();
         txtRt.anchorMin = Vector2.zero;
         txtRt.anchorMax = Vector2.one;
@@ -1108,6 +1146,8 @@ public partial class InGameUI : MonoBehaviour
 
         if (_gm.LastClearedRows.Count > 0 || _gm.LastClearedCols.Count > 0)
         {
+            // 모든 모드 공통. 여러 줄을 한 번에 지울수록 조금 길고 세게 울린다.
+            Haptics.LineClear(_gm.LastClearedRows.Count + _gm.LastClearedCols.Count);
             if (ModeSession.IsToggle)
                 StartCoroutine(PlayToggleClearEffect());
             else
@@ -1165,6 +1205,9 @@ public partial class InGameUI : MonoBehaviour
 
     void RefreshGrid()
     {
+        // 스페셜·무지개 블럭이 새로 생겼는지 먼저 본다 (InGameUI.SpecialFX.cs).
+        DetectSpecialAppear();
+
         bool toggleMode = ModeSession.IsToggle;
         int  activeVal  = toggleMode
             ? (_gm.ToggleCurrentColor == 0 ? GameManager.TOGGLE_WHITE_IDX : GameManager.TOGGLE_BLACK_IDX) + 1
@@ -1398,8 +1441,9 @@ public partial class InGameUI : MonoBehaviour
 
         // 조각을 집었으면 드래그 안내는 걷는다 — 판 위에 손이 하나 더 떠 있으면 헷갈린다.
         StopDragGuide();
-        _dragging = true;
-        _dragIdx  = idx;
+        _dragging  = true;
+        _dragIdx   = idx;
+        _snapValid = false;   // 새 조각은 이전 드래그의 미리보기 칸을 물려받지 않는다
         LiftContainer(idx);
 
         if (_audioSource != null && _sfxSelect != null)
@@ -1460,7 +1504,7 @@ public partial class InGameUI : MonoBehaviour
                 _dragContainer.anchorMin        = new Vector2(0.5f, 0.5f);
                 _dragContainer.anchorMax        = new Vector2(0.5f, 0.5f);
                 _dragContainer.pivot            = new Vector2(0.5f, 0.5f);
-                _dragContainer.anchoredPosition = canvasPos + new Vector2(0, 260f);
+                _dragContainer.anchoredPosition = canvasPos + new Vector2(0, DRAG_LIFT);
             }
         }
 
@@ -1510,18 +1554,43 @@ public partial class InGameUI : MonoBehaviour
         if (_specDrag) FinishSpecialDrag();
     }
 
+    /// <summary>
+    /// 끌고 있는 조각이 놓일 칸(조각 왼쪽 위 칸의 행·열).
+    ///
+    /// 들고 있는 조각 그림은 손가락 위 DRAG_LIFT 지점에 가운데가 오도록 떠 있다. 그 그림의 왼쪽 위
+    /// 모서리가 어느 칸 모서리에 가장 가까운지로 칸을 고른다 — 그래야 어느 방향으로 끌든
+    /// 정확히 반 칸에서 바뀐다.
+    ///
+    /// 예전엔 손가락이 든 칸을 내림(Floor)으로 구하고 거기서 조각 크기의 절반을 뺐다. 높이나 폭이
+    /// 홀수인 조각은 그래도 맞았지만, 짝수인 조각(2칸·4칸)은 그림 가운데가 칸 경계에 오기 때문에
+    /// 위·왼쪽으로는 조금만 움직여도 바로 바뀌고 아래·오른쪽으로는 한 칸을 다 가야 바뀌었다.
+    ///
+    /// 거기에 SNAP_HYSTERESIS 만큼 여유를 둔다. 이미 정해진 칸이 있으면, 그 칸에서 반 칸 +
+    /// 여유보다 멀어져야 옮긴다. 경계 근처에서 놓을 때 손가락이 떨려도 미리보기가 튀지 않는다.
+    /// 가로·세로를 따로 본다 — 한 방향으로만 미는데 다른 방향 칸이 같이 흔들리면 안 된다.
+    /// </summary>
     bool GetGridCell(Vector2 screenPos, int[][] shape, out int row, out int col)
     {
         float sf = _canvas.scaleFactor;
-        Vector2 adjustedScreenPos = screenPos + new Vector2(0, 260f * sf);
+        Vector2 adjustedScreenPos = screenPos + new Vector2(0, DRAG_LIFT * sf);
         RectTransformUtility.ScreenPointToLocalPointInRectangle(
             _gridRt, adjustedScreenPos, null, out Vector2 glp);
 
-        int cursorRow = Mathf.FloorToInt((-glp.y + 480) / 120);
-        int cursorCol = Mathf.FloorToInt(( glp.x + 480) / 120);
-        row = cursorRow - shape.Length    / 2;
-        col = cursorCol - shape[0].Length / 2;
+        // 조각 그림의 왼쪽 위 모서리를 칸 단위로 (판 왼쪽 위가 0, 아래·오른쪽이 +).
+        float fr = (-glp.y + 480f) / 120f - shape.Length    * 0.5f;
+        float fc = ( glp.x + 480f) / 120f - shape[0].Length * 0.5f;
+
+        row = Snap(fr, _snapValid ? _previewRow : (int?)null);
+        col = Snap(fc, _snapValid ? _previewCol : (int?)null);
         return true;
+    }
+
+    static int Snap(float f, int? current)
+    {
+        int nearest = Mathf.RoundToInt(f);
+        if (current == null) return nearest;
+        // 지금 칸에서 반 칸 + 여유 안쪽이면 그대로 둔다.
+        return Mathf.Abs(f - current.Value) <= 0.5f + SNAP_HYSTERESIS ? current.Value : nearest;
     }
 
     public void OnDrag(int idx, Vector2 screenPos)
@@ -1531,6 +1600,7 @@ public partial class InGameUI : MonoBehaviour
         var piece = _gm.CurrentPieces[_dragIdx];
         var shape = PieceData.Shapes[piece.shapeIndex];
         GetGridCell(screenPos, shape, out _previewRow, out _previewCol);
+        _snapValid = true;
         UpdateGridPreview();
     }
 
@@ -1542,6 +1612,9 @@ public partial class InGameUI : MonoBehaviour
 
         var piece = _gm.CurrentPieces[_dragIdx];
         var shape = PieceData.Shapes[piece.shapeIndex];
+        // 마지막으로 보여 준 미리보기 칸에 놓는다. 손을 떼는 순간의 좌표로 다시 계산하면,
+        // 떼면서 손가락이 살짝 밀린 것까지 반영돼 미리보기와 다른 칸에 놓일 수 있다.
+        // (같은 여유를 적용한 계산이라, 손을 떼며 크게 옮긴 경우에만 칸이 바뀐다)
         GetGridCell(screenPos, shape, out int dropRow, out int dropCol);
 
         bool ok = _gm.TryPlacePiece(_dragIdx, dropRow, dropCol);
@@ -1564,6 +1637,7 @@ public partial class InGameUI : MonoBehaviour
         _dragIdx         = -1;
         _previewRow      = -1;
         _previewCol      = -1;
+        _snapValid       = false;
         _dragContainer   = null;
 
         if (!placed)
@@ -1865,8 +1939,8 @@ public partial class InGameUI : MonoBehaviour
         // 연출 루트 이름들. 코루틴이 Destroy 하는 것과 같은 오브젝트다.
         string[] fxRoots =
         {
-            "RainbowBurstFX", "ClearNoteFX", "ToggleClearFX",
-            "ComboPopup", "MeltTrail", "SlideGhost",
+            "RainbowBurstFX", "ToggleClearFX",
+            "ComboPopup", "MeltTrail", "SlideGhost", LCFX_ROOT, SPFX_ROOT, DCFX_ROOT,
         };
 
         for (int i = _canvas.transform.childCount - 1; i >= 0; i--)
@@ -1881,7 +1955,7 @@ public partial class InGameUI : MonoBehaviour
         }
 
         // 빗방울은 파괴 대상이 아니라 재사용되는 레이어다. 곡이 0초로 돌아가면 다음
-        // 프레임에 알아서 꺼지지만, 그 한 프레임이 눈에 남으므로 여기서 먼저 끈다.
+        // 프레임에 알아서 꺼지지만(UpdateDiscoVisuals), 그 한 프레임이 눈에 남으므로 여기서 먼저 끈다.
         if (_rainLayerRt != null) _rainLayerRt.gameObject.SetActive(false);
     }
     /// 광고 제거 제안과 전면 광고가 앞에 끼면서, 이 부분만 따로 불릴 수 있어야 했다.

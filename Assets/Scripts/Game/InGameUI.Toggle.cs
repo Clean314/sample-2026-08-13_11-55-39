@@ -443,26 +443,54 @@ public partial class InGameUI
         if (!apply) return;
 
         // 보드를 먼저 바꾼다. 그래야 RefreshGrid가 새 색을 그려 놓은 뒤에 뒤집기가 시작돼,
-        // 넘어가는 순간 이미 바뀐 면이 드러난다.
-        _gm.ApplyLineSwap(horizontal, line);
+        // 넘어가는 순간 이미 바뀐 면이 드러난다. 줄은 아직 지우지 않는다 — 색이 바뀌어
+        // 줄이 맞는 경우 바로 지우면 뒤집히는 걸 보기도 전에 사라진다. 뒤집기가 끝난 뒤 지운다.
+        // 바뀌기 전 값을 적어 둔다 — 뒤집기는 실제로 색이 바뀐 칸에만 한다.
+        var before = new int[GameManager.SIZE];
+        for (int i = 0; i < GameManager.SIZE; i++)
+            before[i] = horizontal ? _gm.Board[line, i] : _gm.Board[i, line];
+
+        if (!_gm.ApplyLineSwap(horizontal, line, clearNow: false)) return;
+
+        var changed = new bool[GameManager.SIZE];
+        for (int i = 0; i < GameManager.SIZE; i++)
+        {
+            int now = horizontal ? _gm.Board[line, i] : _gm.Board[i, line];
+            changed[i] = now != 0 && now != before[i];
+        }
 
         if (_audioSource != null && _sfxToggleSpecial != null)
             _audioSource.PlayOneShot(_sfxToggleSpecial);
 
-        PlayLineSwapFlip(horizontal, line);
+        PlayLineSwapFlip(horizontal, line, changed);
+        StartCoroutine(FinishSwapAfterFlip());
+    }
+
+    // 뒤집기가 끝날 때까지 손을 막아 둔다. 그 사이엔 판에 지워질 줄이 남아 있어서,
+    // 조각을 놓거나 게임오버를 판정하면 아직 안 지운 판을 기준으로 하게 된다.
+    // (_busy 가 서 있으면 드래그·스페셜 끌기·게임오버 판정이 모두 기다린다)
+    IEnumerator FinishSwapAfterFlip()
+    {
+        _busy = true;
+        float total = SWAP_FLIP_SEC + SWAP_FLIP_STAGGER * (GameManager.SIZE - 1);
+        yield return new WaitForSeconds(total + SWAP_CLEAR_PAUSE);
+        _busy = false;
+        if (_gm != null) _gm.FinishLineSwap();   // 지울 줄이 있으면 평소 클리어 연출이 이어진다
     }
 
     // ── 한 줄이 넘어가는 연출 ────────────────────────────────────
     // 카드가 한 장씩 뒤집히듯 가로줄은 세로축, 세로줄은 가로축으로 눌렸다 펴진다.
     // 지워진 칸은 건드리지 않는다 — 그 칸은 클리어 연출이 따로 맡고 있어서,
     // 여기서 배율을 되돌리면 사라지던 블록이 도로 튀어나온다.
-    void PlayLineSwapFlip(bool horizontal, int index)
+    // changed: 줄에서 색이 실제로 바뀐 칸. 이미 지금 색이던 칸은 그대로 둔다 — 같이 뒤집히면
+    // 어느 칸이 바뀌었는지가 안 보인다. 번지는 간격은 줄 위 자리 기준이라 물결은 그대로 지나간다.
+    void PlayLineSwapFlip(bool horizontal, int index, bool[] changed)
     {
         if (_swapFlipCo != null) StopCoroutine(_swapFlipCo);
-        _swapFlipCo = StartCoroutine(LineSwapFlip(horizontal, index));
+        _swapFlipCo = StartCoroutine(LineSwapFlip(horizontal, index, changed));
     }
 
-    IEnumerator LineSwapFlip(bool horizontal, int index)
+    IEnumerator LineSwapFlip(bool horizontal, int index, bool[] changed)
     {
         float total = SWAP_FLIP_SEC + SWAP_FLIP_STAGGER * (GameManager.SIZE - 1);
 
@@ -472,7 +500,7 @@ public partial class InGameUI
             {
                 int r = horizontal ? index : i;
                 int c = horizontal ? i : index;
-                if (_gm.Board[r, c] == 0) continue;
+                if (_gm.Board[r, c] == 0 || !changed[i]) continue;
 
                 var img = _blockOverlays[r, c];
                 if (img == null) continue;

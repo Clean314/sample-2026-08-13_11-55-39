@@ -27,7 +27,7 @@ public class MainMenuUI : MonoBehaviour
     int             _pendingShift;   // 애니메이션 중에 들어온 넘김 요청
     Image           _peekLeft;
     Image           _peekRight;
-    Sprite[]        _modeSpriteCache;
+    static Sprite[] s_modeSpriteCache;   // 그림자를 구워 넣은 것이라 씬을 넘어 들고 있는다
 
     // 아이콘 한 칸이 움직이는 거리. 미리보기가 서 있는 자리이기도 하다 — 둘이
     // 어긋나면 걸쳐 보이던 그림과 밀려오는 그림이 따로 논다.
@@ -46,6 +46,49 @@ public class MainMenuUI : MonoBehaviour
     // 종료는 되돌릴 수 없는 쪽이라 붉게 둔다. "아니오"는 기본 글자색 그대로 두어
     // 무심코 누르는 손이 안전한 쪽으로 가게 한다.
     static readonly Color QUIT_YES_TEXT = new Color(0.96f, 0.45f, 0.42f);
+
+    // ── 그라데이션·그림자 ────────────────────────────────────────
+    // 모양은 코드로 굽고(UIEffects), 색과 세기는 여기서만 고친다.
+    static readonly Color BG_TOP          = Hex("#252340");
+    static readonly Color BG_BOTTOM       = Hex("#0f0e1a");
+    static readonly Color LOGO_TOP        = Hex("#ffffff");
+    static readonly Color LOGO_BOTTOM     = Hex("#aebbd3");
+    static readonly Color BTN_BORDER_FROM = Hex("#e8e7fe");   // 테두리 왼쪽 위
+    static readonly Color BTN_BORDER_TO   = Hex("#bbbacb");   // 테두리 오른쪽 아래
+
+    // 그림자는 전부 아래로 떨어지는 같은 빛 방향이다. 값은 텍스처 픽셀 기준.
+    const int   LOGO_SHADOW_PAD    = 28;    // 로고 그림이 가장자리까지 차 있어 그림자 자리를 넓힌다
+    const int   LOGO_SHADOW_DROP   = 16;    // 어두운 배경 위라 검은 그림자는 진하고 덜 번지게 해야 보인다
+    const int   LOGO_SHADOW_BLUR   = 14;
+    const float LOGO_SHADOW_ALPHA  = 0.9f;
+    const int   ICON_SHADOW_DROP   = 30;    // 아이콘은 둘레를 넓혀 굽는다(ICON_SHADOW_PAD) — 키워도 잘리지 않는다
+    const int   ICON_SHADOW_BLUR   = 40;
+    const float ICON_SHADOW_ALPHA  = 0.8f;
+    // 그림자가 원본 여백(아래 28px)을 넘어도 잘리지 않게 아이콘 둘레를 이만큼 넓힌다.
+    // 넓힌 만큼 표시 크기도 키워(ICON_SHOW) 아이콘 자체는 480 그대로 보이게 한다.
+    const int   ICON_SHADOW_PAD    = ICON_SHADOW_DROP + ICON_SHADOW_BLUR;
+    const int   ICON_TEX           = 512;   // 모드 아이콘 이미지 크기
+    const float ICON_SHOW          = 480f * (ICON_TEX + ICON_SHADOW_PAD * 2) / ICON_TEX;
+    const int   MUTE_SHADOW_DROP   = 12;     // 음악 아이콘도 둘레를 넓혀 굽는다(MUTE_SHADOW_PAD) — 키워도 잘리지 않는다
+    const int   MUTE_SHADOW_BLUR   = 10;
+    const float MUTE_SHADOW_ALPHA  = 1f;
+    const int   MUTE_SHADOW_PAD    = MUTE_SHADOW_DROP + MUTE_SHADOW_BLUR;
+    const int   BTN_SHADOW_DROP    = 12;
+    const int   BTN_SHADOW_BLUR    = 12;
+    const float BTN_SHADOW_ALPHA   = 0.85f;
+
+    // 구운 결과는 씬을 다시 열어도 그대로 쓴다. 판을 끝내고 메뉴로 돌아올 때마다 굽지 않게.
+    static Sprite   s_bgSprite;
+    static Sprite   s_logoSprite;
+    static readonly System.Collections.Generic.Dictionary<string, Sprite> s_btnSprites =
+        new System.Collections.Generic.Dictionary<string, Sprite>();
+
+    static Color Hex(string html)
+    {
+        ColorUtility.TryParseHtmlString(html, out Color c);
+        return c;
+    }
+
     GameObject      _canvasObj;
     GameObject      _lockOverlay;
     Text            _modeNameText;   // 아이콘 아래: 언락 상태면 모드 이름, 락이면 해금 조건
@@ -215,9 +258,11 @@ public class MainMenuUI : MonoBehaviour
         var obj = new GameObject("Background");
         obj.transform.SetParent(parent.transform, false);
 
+        // 화면보다 작게 구워 늘린다. 위아래 그라데이션이라 화면 비율이 달라도 모양이 같다.
+        if (s_bgSprite == null) s_bgSprite = UIEffects.VerticalGradient(270, 480, BG_TOP, BG_BOTTOM);
         var img = obj.AddComponent<Image>();
-        ColorUtility.TryParseHtmlString("#161524", out Color bg);
-        img.color = bg;
+        img.sprite        = s_bgSprite;
+        img.raycastTarget = false;
 
         var rt = obj.GetComponent<RectTransform>();
         rt.anchorMin = Vector2.zero;
@@ -244,14 +289,27 @@ public class MainMenuUI : MonoBehaviour
         rt.pivot            = new Vector2(0.5f, 0.5f);
         rt.anchoredPosition = new Vector2(0, 620);
 
-        var logoSprite = LoadSprite("Sprites/Logo/logo");
-        if (logoSprite != null)
+        var logoTex = Resources.Load<Texture2D>("Sprites/Logo/logo");
+        if (logoTex != null)
         {
+            // 원래 한 가지 색(#E2E8F0)인 로고에 위→아래 그라데이션을 입히고 그림자를 깐다.
+            // 그림자 자리만큼 텍스처가 커지므로 표시 크기도 같이 키워 1:1 매핑을 지킨다.
+            if (s_logoSprite == null)
+            {
+                var px = UIEffects.ReadPixels(logoTex);
+                UIEffects.TintVertical(px, logoTex.width, logoTex.height, LOGO_TOP, LOGO_BOTTOM);
+                s_logoSprite = UIEffects.ToSprite(UIEffects.WithDropShadow(
+                    px, logoTex.width, logoTex.height, LOGO_SHADOW_PAD,
+                    new Vector2Int(0, -LOGO_SHADOW_DROP), LOGO_SHADOW_BLUR, LOGO_SHADOW_ALPHA, Color.black));
+            }
+
+            float scale       = LOGO_W / (float)logoTex.width;
             var img           = obj.AddComponent<Image>();
-            img.sprite        = logoSprite;
+            img.sprite        = s_logoSprite;
             img.color         = Color.white;
             img.raycastTarget = false;
-            rt.sizeDelta      = new Vector2(LOGO_W, LOGO_H);
+            rt.sizeDelta      = new Vector2(LOGO_W + LOGO_SHADOW_PAD * 2 * scale,
+                                            LOGO_H + LOGO_SHADOW_PAD * 2 * scale);
             return;
         }
 
@@ -298,7 +356,8 @@ public class MainMenuUI : MonoBehaviour
         // 화면(1080)보다 넓게 잡는다. 마스크 경계가 화면 안쪽에 있으면 미리보기가 허공에서
         // 싹둑 잘린 네모로 보인다. 경계를 화면 밖으로 밀어 두면 화면 끝이 대신 자르므로
         // "밖으로 이어진다"로 읽힌다. 슬라이드로 빠지는 아이콘도 화면 밖에서 사라진다.
-        clipRt.sizeDelta        = new Vector2(1160, 480);
+        // 높이는 그림자까지 들어가게 넓힌 아이콘 크기에 맞춘다.
+        clipRt.sizeDelta        = new Vector2(1160, ICON_SHOW);
 
         // ── 모드 아이콘 (클립 안) ─────────────────────────
         var iconObj = new GameObject("ModeIcon");
@@ -310,7 +369,7 @@ public class MainMenuUI : MonoBehaviour
         _modeIconRt.anchorMax     = new Vector2(0.5f, 0.5f);
         _modeIconRt.pivot         = new Vector2(0.5f, 0.5f);
         _modeIconRt.anchoredPosition = Vector2.zero;
-        _modeIconRt.sizeDelta     = new Vector2(480, 480);
+        _modeIconRt.sizeDelta     = new Vector2(ICON_SHOW, ICON_SHOW);
 
         // ── 잠금 오버레이 (클립 밖, 같은 위치에 덮어씌움) ─
         _lockOverlay = new GameObject("LockOverlay");
@@ -398,7 +457,7 @@ public class MainMenuUI : MonoBehaviour
         rt.anchorMin        = new Vector2(0.5f, 0.5f);
         rt.anchorMax        = new Vector2(0.5f, 0.5f);
         rt.pivot            = new Vector2(0.5f, 0.5f);
-        rt.sizeDelta        = new Vector2(480f, 480f);
+        rt.sizeDelta        = new Vector2(ICON_SHOW, ICON_SHOW);
         rt.anchoredPosition = new Vector2(dir * SLIDE_DIST, 0f);
 
         return img;
@@ -436,15 +495,20 @@ public class MainMenuUI : MonoBehaviour
     {
         if (IsComingSoon(slot)) return null;
 
-        if (_modeSpriteCache == null) _modeSpriteCache = new Sprite[MODE_IMAGES.Length];
-        if (_modeSpriteCache[slot] != null) return _modeSpriteCache[slot];
+        if (s_modeSpriteCache == null) s_modeSpriteCache = new Sprite[MODE_IMAGES.Length];
+        if (s_modeSpriteCache[slot] != null) return s_modeSpriteCache[slot];
 
         var tex = Resources.Load<Texture2D>(MODE_IMAGES[slot]);
         if (tex == null) return null;
 
-        _modeSpriteCache[slot] =
-            Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f));
-        return _modeSpriteCache[slot];
+        // 그림자를 그림 안에 구워 넣는다. 따로 된 그림자 오브젝트였다면 슬라이드·미리보기
+        // 투명도·잠금 덮개를 전부 따라다니게 해야 했지만, 한 장이면 지금 코드가 그대로 맞는다.
+        // 둘레를 ICON_SHADOW_PAD 만큼 넓혀 굽고, 표시 크기(ICON_SHOW)도 그만큼 키워 둔다.
+        var shadowed = UIEffects.WithDropShadow(
+            UIEffects.ReadPixels(tex), tex.width, tex.height, ICON_SHADOW_PAD,
+            new Vector2Int(0, -ICON_SHADOW_DROP), ICON_SHADOW_BLUR, ICON_SHADOW_ALPHA, Color.black);
+        s_modeSpriteCache[slot] = UIEffects.ToSprite(shadowed);
+        return s_modeSpriteCache[slot];
     }
     /// 슬롯 개수만큼 점을 깔아 지금 몇 번째인지 보여 준다. 화살표가 하던 "옆에 더 있다"는
     /// 신호를 대신하면서, 화살표가 못 하던 "전부 몇 개인지"까지 같이 말해 준다.
@@ -560,7 +624,7 @@ public class MainMenuUI : MonoBehaviour
         nextRt.anchorMin        = new Vector2(0.5f, 0.5f);
         nextRt.anchorMax        = new Vector2(0.5f, 0.5f);
         nextRt.pivot            = new Vector2(0.5f, 0.5f);
-        nextRt.sizeDelta        = new Vector2(480, 480);
+        nextRt.sizeDelta        = new Vector2(ICON_SHOW, ICON_SHOW);
         nextRt.anchoredPosition = new Vector2(dir * SLIDE_DIST, 0);
 
         // 들어오는 쪽은 미리보기가 서 있던 밝기에서 출발해 또렷해지고, 나가는 쪽은 반대로
@@ -719,12 +783,7 @@ public class MainMenuUI : MonoBehaviour
         }
 
         if (_modeIcon != null)
-        {
-            var tex = Resources.Load<Texture2D>(MODE_IMAGES[_currentMode]);
-            _modeIcon.sprite = tex != null
-                ? Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f))
-                : null;
-        }
+            _modeIcon.sprite = LoadModeSprite(_currentMode);
 
         RefreshModeDots();
         RefreshPeeks();
@@ -773,13 +832,10 @@ public class MainMenuUI : MonoBehaviour
         var obj = new GameObject(label + "Button");
         obj.transform.SetParent(parent.transform, false);
 
-        var img = obj.AddComponent<Image>();
-        img.sprite = CreateRoundedRectBorderSprite(200, 100, 36, 4);
-        img.type = Image.Type.Sliced;
-        ColorUtility.TryParseHtmlString("#e2e8f0", out Color borderColor);
-        img.color = borderColor;
+        var skin = CreateButtonSkin(obj, 700, 130, 36, 4);
 
         var btn = obj.AddComponent<Button>();
+        btn.targetGraphic = skin;
         var colors = btn.colors;
         colors.normalColor      = Color.white;
         colors.highlightedColor = new Color(1f, 1f, 1f, 0.85f);
@@ -821,13 +877,10 @@ public class MainMenuUI : MonoBehaviour
         var obj = new GameObject("LanguageButton");
         obj.transform.SetParent(parent.transform, false);
 
-        var img = obj.AddComponent<Image>();
-        img.sprite = CreateRoundedRectBorderSprite(200, 100, 30, 3);
-        img.type   = Image.Type.Sliced;
-        ColorUtility.TryParseHtmlString("#e2e8f0", out Color borderColor);
-        img.color  = borderColor;
+        var skin = CreateButtonSkin(obj, 160, 80, 30, 3);
 
         var btn    = obj.AddComponent<Button>();
+        btn.targetGraphic = skin;
         var colors = btn.colors;
         colors.normalColor      = Color.white;
         colors.highlightedColor = new Color(1f, 1f, 1f, 0.75f);
@@ -862,44 +915,50 @@ public class MainMenuUI : MonoBehaviour
         btn.onClick.AddListener(() => LocalizationManager.Instance.ToggleLanguage());
     }
 
-    // ── 둥근 테두리 Sprite 생성 (속이 빈 outline) ────────────
-    Sprite CreateRoundedRectBorderSprite(int w, int h, int radius, int border)
+    // ── 버튼 겉모양 ──────────────────────────────────────────
+    /// <summary>
+    /// 버튼에 그림자 진 그라데이션 테두리를 붙이고 그 그림을 돌려준다. 속은 비워 배경이 비친다.
+    ///
+    /// 자식으로 둔다. 유니티 UI 는 자식을 부모 위에 그려서, 부르는 쪽이 나중에 붙이는
+    /// 글자·아이콘이 그 위에 온다. 버튼을 끄거나(광고 설정) 흐리게 해도(시작 버튼의
+    /// CanvasGroup) 테두리와 그림자가 같이 따라간다.
+    ///
+    /// 그림자는 버튼 바깥으로만 떨어지게 같은 텍스처에 구워서, 그림 크기가 그림자 자리만큼 크다.
+    /// 누름 영역은 raycastPadding 으로 버튼 크기에 맞춰 되돌린다.
+    /// w·h 는 버튼의 실제 크기(sizeDelta)와 같아야 그라데이션이 늘어나지 않는다.
+    ///
+    /// 인게임 뒤로가기 버튼(InGameUI.BuildBackButton)도 이걸 그대로 쓴다. 두 화면의 버튼 모양이
+    /// 한 곳에서 정해지도록 static 으로 열어 두었다.
+    /// </summary>
+    public static Image CreateButtonSkin(GameObject obj, int w, int h, int radius, int border)
     {
-        var tex = new Texture2D(w, h, TextureFormat.ARGB32, false);
-        tex.filterMode = FilterMode.Bilinear;
+        if (obj.GetComponent<RectTransform>() == null) obj.AddComponent<RectTransform>();
 
-        var pixels = new Color32[w * h];
-        for (int y = 0; y < h; y++)
+        // 그림자가 아래로 떨어지므로 아래쪽 여백이 가장 커야 한다
+        int pad = BTN_SHADOW_BLUR + BTN_SHADOW_DROP;
+        if (!s_btnSprites.TryGetValue($"{w}x{h}r{radius}b{border}", out var spr) || spr == null)
         {
-            for (int x = 0; x < w; x++)
-            {
-                bool outer = IsInsideRoundedRect(x, y, w, h, radius);
-                bool inner = IsInsideRoundedRect(x - border, y - border,
-                    w - border * 2, h - border * 2, Mathf.Max(0, radius - border));
-                pixels[y * w + x] = (outer && !inner)
-                    ? new Color32(255, 255, 255, 255)
-                    : new Color32(0, 0, 0, 0);
-            }
+            var ring = UIEffects.RoundedRing(w, h, radius, border, BTN_BORDER_FROM, BTN_BORDER_TO);
+            // 그림자는 버튼 전체 모양에서 떨어뜨려 바깥에만 보이게 한다 — 얇은 테두리만으로는
+            // 그림자가 번져 사라지고, 속까지 어둡게 하면 비어 있는 버튼이 탁해진다.
+            var body = UIEffects.RoundedRing(w, h, radius, h, Color.white, Color.white);
+            spr = UIEffects.ToSprite(UIEffects.WithDropShadow(ring, w, h, pad,
+                new Vector2Int(0, -BTN_SHADOW_DROP), BTN_SHADOW_BLUR, BTN_SHADOW_ALPHA, Color.black, body));
+            s_btnSprites[$"{w}x{h}r{radius}b{border}"] = spr;
         }
 
-        tex.SetPixels32(pixels);
-        tex.Apply();
-
-        return Sprite.Create(tex,
-            new Rect(0, 0, w, h),
-            new Vector2(0.5f, 0.5f),
-            100f, 0,
-            SpriteMeshType.FullRect,
-            new Vector4(radius, radius, radius, radius));
-    }
-
-    bool IsInsideRoundedRect(int px, int py, int w, int h, int r)
-    {
-        int cx = px < r ? r : (px > w - 1 - r ? w - 1 - r : px);
-        int cy = py < r ? r : (py > h - 1 - r ? h - 1 - r : py);
-        float dx = px - cx;
-        float dy = py - cy;
-        return dx * dx + dy * dy <= (float)r * r;
+        var go  = new GameObject("Skin");
+        go.transform.SetParent(obj.transform, false);
+        var img = go.AddComponent<Image>();
+        img.sprite        = spr;
+        img.raycastTarget = true;   // 버튼의 누름은 이 그림이 받는다
+        img.raycastPadding = new Vector4(pad, pad, pad, pad);
+        var rt = img.rectTransform;
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = new Vector2(-pad, -pad);
+        rt.offsetMax = new Vector2( pad,  pad);
+        return img;
     }
 
     // ── BGM 뮤트 토글 버튼 ───────────────────────────────────
@@ -912,8 +971,7 @@ public class MainMenuUI : MonoBehaviour
 
         var img = obj.AddComponent<Image>();
         img.preserveAspect = true;
-        img.color          = new Color(0.886f, 0.910f, 0.941f);
-        img.sprite         = LoadSprite(bgm.IsMuted ? "Sprites/UI/mute" : "Sprites/UI/bgm_on");
+        img.sprite         = LoadMuteSprite(bgm.IsMuted);
 
         var btn    = obj.AddComponent<Button>();
         var colors = btn.colors;
@@ -927,14 +985,35 @@ public class MainMenuUI : MonoBehaviour
         rt.anchorMin        = new Vector2(1f, 1f);
         rt.anchorMax        = new Vector2(1f, 1f);
         rt.pivot            = new Vector2(1f, 1f);
-        rt.anchoredPosition = new Vector2(-30, -55);
-        rt.sizeDelta        = new Vector2(100, 100);
+        // 그림은 그림자 자리만큼 사방으로 크다(이미지 100px 을 100 으로 그린다). 아이콘이
+        // 예전 자리에 그대로 오도록 넓힌 만큼 밀어 두고, 누름 영역은 아이콘 크기로 되돌린다.
+        rt.anchoredPosition = new Vector2(-30 + MUTE_SHADOW_PAD, -55 + MUTE_SHADOW_PAD);
+        rt.sizeDelta        = new Vector2(100 + MUTE_SHADOW_PAD * 2, 100 + MUTE_SHADOW_PAD * 2);
+        img.raycastPadding  = Vector4.one * MUTE_SHADOW_PAD;
 
         btn.onClick.AddListener(() =>
         {
             bgm.ToggleMute();
-            img.sprite = LoadSprite(bgm.IsMuted ? "Sprites/UI/mute" : "Sprites/UI/bgm_on");
+            img.sprite = LoadMuteSprite(bgm.IsMuted);
         });
+    }
+
+    /// <summary>
+    /// 음악 아이콘. 한 가지 색 그림이라 로고와 같은 그라데이션을 입히고 그림자를 깐다.
+    /// 원본 여백(아래 16px)으로는 그림자가 잘리므로 둘레를 넓혀 굽는다. 켜짐·꺼짐 둘 다 한 번만 굽는다.
+    /// </summary>
+    Sprite LoadMuteSprite(bool muted)
+    {
+        string name = muted ? "Sprites/UI/mute" : "Sprites/UI/bgm_on";
+        if (s_btnSprites.TryGetValue(name, out var spr) && spr != null) return spr;
+
+        var tex = Resources.Load<Texture2D>(name);
+        if (tex == null) return null;
+        var px = UIEffects.ReadPixels(tex);
+        UIEffects.TintVertical(px, tex.width, tex.height, LOGO_TOP, LOGO_BOTTOM);
+        spr = UIEffects.ToSprite(UIEffects.WithDropShadow(px, tex.width, tex.height, MUTE_SHADOW_PAD,
+            new Vector2Int(0, -MUTE_SHADOW_DROP), MUTE_SHADOW_BLUR, MUTE_SHADOW_ALPHA, Color.black));
+        return s_btnSprites[name] = spr;
     }
 
     Sprite LoadSprite(string name)
@@ -1117,13 +1196,10 @@ public class MainMenuUI : MonoBehaviour
         var obj = new GameObject("LeaderboardButton");
         obj.transform.SetParent(parent.transform, false);
 
-        var img    = obj.AddComponent<Image>();
-        img.sprite = CreateRoundedRectBorderSprite(200, 100, 30, 3);
-        img.type   = Image.Type.Sliced;
-        ColorUtility.TryParseHtmlString("#e2e8f0", out Color borderColor);
-        img.color  = borderColor;
+        var skin = CreateButtonSkin(obj, 160, 80, 30, 3);
 
         var btn = obj.AddComponent<Button>();
+        btn.targetGraphic = skin;
         btn.onClick.AddListener(() =>
             LeaderboardPanel.Open(parent.transform, IsComingSoon(_currentMode) ? 0 : _currentMode));
 
@@ -1158,13 +1234,10 @@ public class MainMenuUI : MonoBehaviour
         obj.SetActive(false);
         _adPrivacyBtnObj = obj;
 
-        var img    = obj.AddComponent<Image>();
-        img.sprite = CreateRoundedRectBorderSprite(200, 100, 30, 3);
-        img.type   = Image.Type.Sliced;
-        ColorUtility.TryParseHtmlString("#e2e8f0", out Color borderColor);
-        img.color  = borderColor;
+        var skin = CreateButtonSkin(obj, 160, 80, 30, 3);
 
         var btn = obj.AddComponent<Button>();
+        btn.targetGraphic = skin;
         var colors = btn.colors;
         colors.normalColor      = Color.white;
         colors.highlightedColor = new Color(1f, 1f, 1f, 0.75f);

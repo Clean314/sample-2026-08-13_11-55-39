@@ -28,7 +28,7 @@ public partial class InGameUI
 
         // 이 함수는 매 프레임 돈다. 문자열 보간은 결과를 비교하기 전에 이미 할당되므로,
         // 만들어 놓고 버리는 쓰레기가 프레임마다 쌓인다. 숫자가 바뀔 때만 만든다.
-        // ♪는 U+266A. ♫(U+266B)는 폰트에 없다 — NOTE_GLYPHS 주석 참고.
+        // ♪는 U+266A. ♫(U+266B)는 SCDream 폰트에 없다 — 없는 글자는 모바일 빌드에서 빈칸이 된다.
         if (_comboStatusShown != combo)
         {
             _comboStatusShown     = combo;
@@ -60,7 +60,7 @@ public partial class InGameUI
             Vector3.one * (1f + COMBO_STATUS_PULSE_SCALE * wave);
     }
 
-    // 하트 게이지 갱신: 채워진 하트는 분홍, 빈 하트는 흐릿하게
+    // 하트 게이지 갱신: 찬 만큼 채운 하트 그림, 나머지는 빈 하트 그림
     void RefreshDiscoHearts()
     {
         if (_discoHearts == null) return;
@@ -68,7 +68,7 @@ public partial class InGameUI
         {
             if (_discoHearts[i] == null) continue;
             bool filled = i < _gm.DiscoLineGauge;
-            _discoHearts[i].color = filled ? HEART_FULL : HEART_EMPTY;
+            _discoHearts[i].sprite = filled ? _heartFull : _heartEmpty;
             _discoHearts[i].rectTransform.localScale = Vector3.one * (filled ? 1.12f : 1f);
         }
     }
@@ -330,6 +330,11 @@ public partial class InGameUI
             && tunnelVisible)
             RerollTunnelCurve(playbackSec >= TUNNEL2_START);
         if (tunnelVisible) UpdateTunnel(now, playbackSec);
+        // 빗방울 레이어는 터널 레이어가 아니라 그리드 밑에 있어서 위에서 같이 꺼지지 않는다.
+        // 켜고 끄는 건 UpdateTunnelRain 인데, 그건 터널이 보일 때만 불린다. 그래서 터널 구간
+        // 밖으로 시간이 되돌아가면(구간 이동, 곡 반복) 빗방울이 켜진 채 그 자리에 얼어붙었다.
+        else if (_rainLayerRt != null && _rainLayerRt.gameObject.activeSelf)
+            _rainLayerRt.gameObject.SetActive(false);
 
         // 별은 꺼질 때 살아있던 슬롯을 비워둬야 다시 켤 때 옛 별이 그 자리에 남아있지 않는다.
         // (알파도 같이 0으로 — 갱신 루프는 비활성 슬롯을 건너뛰므로 스스로 지워지지 않는다)
@@ -716,6 +721,9 @@ public partial class InGameUI
         layerRt.offsetMin = layerRt.offsetMax = Vector2.zero;
         _tunnelLayerRt = layerRt;
 
+        // 터널 뒤에 깔 별. 첫 자식이라 아래 스포크·링보다 뒤에 놓인다 (InGameUI.TunnelStars.cs).
+        BuildTunnelStars(layerGo.transform);
+
         // 스포크는 한 그룹으로 묶는다. 이 그룹만 회전시키고, 터널이 굽은 만큼 위치도 옮긴다
         // (스포크가 모이는 지점 = 화면에서 터널 끝이 보이는 자리).
         var spokeGroupGo = new GameObject("TunnelSpokeGroup");
@@ -1066,6 +1074,7 @@ public partial class InGameUI
         }
 
         UpdateTunnelRain(now, playbackSec, intensity);
+        UpdateTunnelStars(now, intensity);
     }
 
     // 깊이 z에 있는 단면의 색. 터널 축 위의 절대 위치(travel + z)로 색상을 정하므로

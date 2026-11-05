@@ -41,16 +41,16 @@ public partial class InGameUI
         Sprite,   // arg = Resources 경로
         Line,     // 네 칸 중 셋이 찬 줄. 굽는다
         Glyph,    // arg = 리치텍스트. 게이지처럼 본문 폰트로 찍는 것
+        Hearts,   // 디스코 하트 게이지. 실제 게이지와 같은 그림으로 찬 하트 둘 + 빈 하트 하나
         Combo,    // arg = 리치텍스트. 콤보 표시와 같은 폰트·기울임으로 찍는 것
     }
 
     // 화면에 실제로 뜨는 것과 같은 글자·색. 여기 색을 바꾸면 실물도 같이 봐야 한다.
     //   토글 게이지  RefreshGauge 의 채운 원 / 빈 원
-    //   디스코 하트  HEART_FULL / HEART_EMPTY
+    //   디스코 하트  HeartSprite — 게이지와 같은 그림을 쓴다(HelpIcon.Hearts)
     //   콤보 표시    COMBO_STATUS_SAFE / COMBO_STATUS_RISK
     // ● ○ ♥ ♪ 는 SCDream4·8 양쪽 cmap 에 다 있는 걸 확인하고 골랐다(♫ 는 없다).
     const string GLYPH_TG_GAUGE = "<color=#EBEBF0>●●</color><color=#4D4D66>○</color>";
-    const string GLYPH_DC_HEART = "<color=#FF477A>♥♥</color><color=#FFFFFF33>♥</color>";
     const string GLYPH_DC_SAFE  = "<color=#FFFFFF>x2 ♪</color>";
     const string GLYPH_DC_RISK  = "<color=#FF4757>x2 ♪</color>";
 
@@ -147,7 +147,7 @@ public partial class InGameUI
             {
                 (HelpIcon.Sprite, "Sprites/UI/drag",               "help_drag"),
                 (HelpIcon.Line,   null,                            "help_line"),
-                (HelpIcon.Glyph,  GLYPH_DC_HEART,                  "help_dc_gauge"),
+                (HelpIcon.Hearts, null,                            "help_dc_gauge"),
                 (HelpIcon.Sprite, "Sprites/Puzzles/rainbow_disco", "help_dc_rainbow"),
                 (HelpIcon.Combo,  GLYPH_DC_SAFE,                   "help_dc_safe"),
                 (HelpIcon.Combo,  GLYPH_DC_RISK,                   "help_dc_risk"),
@@ -257,6 +257,26 @@ public partial class InGameUI
             irt.pivot            = new Vector2(0.5f, 0.5f);
             irt.anchoredPosition = new Vector2(HELP_ICON_X, y);
             irt.sizeDelta        = new Vector2(HELP_ICON, HELP_ICON);
+        }
+        else if (kind == HelpIcon.Hearts)
+        {
+            // 게이지와 같은 비율(하트 64, 간격 78)을 조금 줄여 글자 아이콘 폭(230) 안에 맞춘다.
+            const float size = 58f, gap = 70f;
+            for (int i = 0; i < 3; i++)
+            {
+                var hGo = new GameObject("Heart");
+                hGo.transform.SetParent(_helpContent, false);
+                var img            = hGo.AddComponent<Image>();
+                img.sprite         = HeartSprite(i < 2);
+                img.preserveAspect = true;
+                img.raycastTarget  = false;
+                var hrt              = hGo.GetComponent<RectTransform>();
+                hrt.anchorMin        = hrt.anchorMax = new Vector2(0.5f, 1f);
+                hrt.pivot            = new Vector2(0.5f, 0.5f);
+                hrt.anchoredPosition = new Vector2(HELP_ICON_X + (i - 1) * gap, y);
+                hrt.sizeDelta        = Vector2.one * HeartShowSize(size);
+                hrt.localScale       = Vector3.one * (i < 2 ? 1.12f : 1f);   // 게이지처럼 찬 하트는 살짝 크게
+            }
         }
         else
         {

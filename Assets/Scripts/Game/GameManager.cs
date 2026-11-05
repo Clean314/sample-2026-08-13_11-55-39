@@ -432,7 +432,10 @@ public class GameManager : MonoBehaviour
     /// 빈 칸은 채우지 않는다. 채워 주면 "무조건 한 줄 지우기"가 되어 색을 맞춘다는 규칙이
     /// 사라진다 — 꽉 찼는데 색만 어긋난 줄을 찾아내는 게 이 도구의 값이다.
     /// </summary>
-    public bool ApplyLineSwap(bool horizontal, int index)
+    ///
+    /// clearNow 가 false 면 색만 바꾸고 줄은 지우지 않는다. 화면이 뒤집기 연출을 다 보여 준
+    /// 뒤에 FinishLineSwap 을 불러 지운다 — 바로 지우면 색이 바뀌는 걸 보기도 전에 줄이 사라진다.
+    public bool ApplyLineSwap(bool horizontal, int index, bool clearNow = true)
     {
         if (!ModeSession.IsToggle)  return false;
         if (index < 0 || index >= SIZE)     return false;
@@ -451,6 +454,23 @@ public class GameManager : MonoBehaviour
             int c = horizontal ? i : index;
             if (Board[r, c] != 0) Board[r, c] = activeVal;
         }
+
+        if (!clearNow)
+        {
+            // 지난 클리어 기록이 남아 있으면 화면이 그 연출을 다시 튼다.
+            LastClearedRows.Clear();
+            LastClearedCols.Clear();
+            SaveGame();
+            OnStateChanged?.Invoke();
+            return true;
+        }
+        return FinishLineSwap();
+    }
+
+    /// <summary>ApplyLineSwap(clearNow: false) 뒤에 부른다. 꽉 찬 줄이 있으면 지우고 점수에 넣는다.</summary>
+    public bool FinishLineSwap()
+    {
+        if (!ModeSession.IsToggle) return false;
 
         // 줄 하나만 건드리므로 되먹임이 없다. 여기서 난 클리어도 평범한 클리어로 쳐서
         // 점수·콤보·전환 게이지에 그대로 넣는다 — "스페셜로 한 줄 지워 전환을 앞당긴다"가

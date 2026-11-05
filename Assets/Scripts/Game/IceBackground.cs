@@ -1,141 +1,182 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// 아이스 모드 배경. ice.png 를 그대로 붙이지 않고 같은 색·형태로 다시 그린다.
+/// 아이스 모드 배경. 눈 내리는 새벽 도시 — ice.png 를 참고해 사각형 위주로 다시 그린다.
 ///
 /// 그리는 쪽을 고른 이유:
-///   · 해상도에 매이지 않는다. 어떤 화면비에서도 하늘이 끝까지 차고 요소만 제자리를 잡는다.
-///   · 움직일 수 있다. 한 장짜리 그림은 빙산을 띄우거나 구름을 흘려보낼 수가 없다.
-///   · 용량이 0이다. 텍스처는 시작할 때 구워서 쓰고 버린다.
+///   · 해상도에 매이지 않는다. 건물은 화면 아래끝까지 내려가고, 화면이 길어지면 하늘만 늘어난다.
+///   · 움직일 수 있다. 눈이 내리고, 창문 몇 개가 가끔 깜박이고, 피뢰침 끝 붉은 점이 점멸한다.
+///   · 용량이 거의 0이다. 창문 무늬 몇 장과 그라데이션 몇 줄만 시작할 때 굽는다.
 ///
-/// 디스코 배경들과 달리 아이스는 곡 타임라인이 없다. 그래서 모든 움직임이 경과 시간 기반의
-/// 무한 반복이고, 어디서 들어와도 어색한 지점이 없다.
+/// 깊이는 색으로만 낸다. 건물을 먼·중간·가까운 세 겹으로 나누고, 먼 겹일수록 하늘색에
+/// 가깝게 흐려 둔다. 겹 사이에는 아래로 짙어지는 안개를 한 장씩 깔아 거리감을 더한다.
+///
+/// 아이스는 곡 타임라인이 없다. 그래서 모든 움직임이 경과 시간 기반의 무한 반복이고,
+/// 어디서 들어와도 어색한 지점이 없다.
 /// </summary>
 public class IceBackground : MonoBehaviour
 {
-    // ── 색 ──────────────────────────────────────────────────────
-    // 빙산과 구름은 ice.png 에서 그대로 뽑았고, 하늘과 물결은 다시 잡았다.
-    //
-    // 원본의 하늘은 (0,132,255) 한 색이었다. 파랑 채널이 꽉 찬 원색이라 화면이 값싸
-    // 보이는데, 명도만 떨어뜨려서는 안 고쳐진다 — 채널이 255 에 붙어 있어 어둡게 눌러도
-    // 파랑이 그대로 남기 때문이다. 그래서 위아래로 색상 자체가 옮겨가게 했다.
-    // 위는 깊은 남색, 수평선은 옅은 하늘. 낮이라는 설정은 그대로 두고 채도만 걷어낸 값이다.
-    // ── 조정 손잡이: 풍경 전체의 채도 ──
-    // 1.0이면 아래 적힌 값 그대로다. 올리면 파랑이 진해진다.
-    //
-    // 밝기는 건드리지 않고 회색축에서 밀어내기만 한다. 그래야 아래 주석들이 기대는
-    // 밝기 관계가 안 깨진다 — 물결이 물막보다 밝아야 수면에 걸린 빛으로 읽히고,
-    // 하늘 위쪽이 수평선보다 어두워야 점수 문구가 읽힌다. 단순히 파랑 채널만 올리면
-    // 그 관계가 전부 어긋난다.
-    //
-    // 흰 것들(ICE_LIGHT, CLOUD_WHITE)은 일부러 통과시키지 않는다. 눈과 빙산의 밝은 면은
-    // 희게 남아야 하고, 여길 물들이면 값을 조금만 올려도 배경이 통째로 파래진다.
-    const float SATURATION = 1.25f;
+    // ── 하늘 ────────────────────────────────────────────────────
+    // 위는 짙은 남색, 아래로 갈수록 눈보라에 번진 푸른 회색.
+    // 채도를 일부러 낮게 잡았다 — 삭막한 새벽이라 색이 살아 있으면 안 된다.
+    public static readonly Color32 SKY  = new Color32( 32,  38,  73, 255);  // 화면 위
+    static readonly Color32 SKY_HORIZON = new Color32( 81,  87, 128, 255);  // 판 아래쪽 부근
+    // 하늘이 SKY_HORIZON 에 다다르는 높이. 그리드 아랫변(-400)에 맞췄다.
+    const float SKY_HORIZON_Y = -400f;
 
-    static Color32 Sat(byte r, byte g, byte b)
+    // ── 건물 겹 ─────────────────────────────────────────────────
+    // 먼 겹일수록 하늘에 가깝게 밝고 대비가 낮다. 창문도 작고 촘촘해진다.
+    struct Layer
     {
-        float gray = 0.299f * r + 0.587f * g + 0.114f * b;
-        return new Color32(
-            (byte)Mathf.Clamp(Mathf.Round(gray + (r - gray) * SATURATION), 0f, 255f),
-            (byte)Mathf.Clamp(Mathf.Round(gray + (g - gray) * SATURATION), 0f, 255f),
-            (byte)Mathf.Clamp(Mathf.Round(gray + (b - gray) * SATURATION), 0f, 255f),
-            255);
+        public Color32 body, side, window, snow;
+        public int     cellW, cellH, winW, winH;  // 창문 한 칸과 그 안의 창
+        public float   litRate;                   // 불 켜진 창의 비율
+        public bool    flickers;                  // 이 겹에서 깜박이는 창을 뽑을지
+        public float   litDim;                    // 켜진 창 색을 몸통 쪽으로 누르는 정도
     }
 
-    public static readonly Color32 SKY         = Sat( 10,  44,  92);  // 화면 위
-    static readonly Color32 SKY_HORIZON = Sat( 72, 134, 178);  // 수평선 부근
-    static readonly Color32 ICE_LIGHT   = new Color32(238, 240, 249, 255);  // 빙산 밝은 면
-    static readonly Color32 ICE_SHADE   = Sat(198, 216, 251);  // 빙산 그늘진 면
-    static readonly Color32 CLOUD_WHITE = new Color32(251, 252, 252, 255);
-    static readonly Color32 CLOUD_BLUE  = Sat(194, 225, 252);
-    // 구름 그늘도 같이 낮췄다. 이것만 원색으로 남으면 하늘에서 걷어낸 채도가 그 자리에
-    // 그대로 튀어나온다.
-    static readonly Color32 CLOUD_DARK  = Sat( 74, 124, 170);
+    static readonly Layer FAR = new Layer {
+        body = new Color32( 68,  75, 117, 255), side = new Color32( 62,  68, 110, 255),
+        window = new Color32( 60,  66, 108, 255), snow = new Color32(111, 118, 159, 255),
+        cellW = 26, cellH = 30, winW = 14, winH = 14,
+        litRate = 0.03f, flickers = false, litDim = 0.45f,
+    };
+    static readonly Layer MID = new Layer {
+        body = new Color32( 53,  60, 101, 255), side = new Color32( 45,  52,  92, 255),
+        window = new Color32( 42,  48,  87, 255), snow = new Color32(140, 147, 185, 255),
+        cellW = 34, cellH = 38, winW = 20, winH = 20,
+        litRate = 0.035f, flickers = true, litDim = 0.2f,
+    };
+    static readonly Layer NEAR = new Layer {
+        body = new Color32( 39,  44,  81, 255), side = new Color32( 30,  36,  71, 255),
+        window = new Color32( 27,  33,  66, 255), snow = new Color32(172, 179, 212, 255),
+        cellW = 46, cellH = 52, winW = 30, winH = 30,
+        litRate = 0.035f, flickers = true, litDim = 0f,
+    };
 
-    // 물결은 반대로 밝게 간다. 원본에선 하늘보다 어두운 색이 물이었지만, 지금은 물결이
-    // 수면 막(WATER_*) 아래에 깔려 62% 가 덮인다. 어두운 색을 쓰면 막에 먹혀 그늘과
-    // 구분이 안 가고 물에 잠긴 잔해처럼 보인다. 수평선 색보다 밝아야 막을 뚫고 나와서
-    // 수면에 걸린 빛으로 읽힌다 — 막을 통과한 뒤 물이 (68,120,161), 물결이 (109,148,174).
-    static readonly Color32 WAVE_DARK   = Sat(168, 208, 230);
-    static readonly Color32 WAVE_DEEP   = Sat(140, 186, 214);
+    // 켜진 창은 대부분 따뜻한 노랑, 일부는 형광등 같은 푸른 흰색.
+    static readonly Color32 LIT_WARM = new Color32(236, 214, 150, 255);
+    static readonly Color32 LIT_COOL = new Color32(196, 206, 228, 255);
+    const float LIT_COOL_RATE = 0.3f;
+    // 켜진 창을 몸통 색 쪽으로 한 번 더 누른다. 겹마다 다른 litDim 위에 똑같이 얹힌다.
+    // 원색 그대로면 눈보라 속 새벽치고 너무 또렷하다.
+    const float LIT_FADE = 0.35f;   // ── 조정 손잡이: 0 이면 원색, 올릴수록 흐려진다 ──
 
-    // ── 수면 ────────────────────────────────────────────────────
-    // 빙산 위에 덮는 반투명 막. 이 선 아래는 물에 잠긴 것으로 읽힌다.
+    // ── 건물 배치 ───────────────────────────────────────────────
+    // (중심 x, 폭, 지붕 y, 피뢰침 길이). 지붕 y 는 화면 중심 기준이고 몸통은 화면 아래끝까지 내려간다.
     //
-    // 빙산 밑동이 둘 다 -875 라, 수면 하나로 큰 빙산은 34%·작은 빙산은 그보다 깊이
-    // 잠긴다. 밑동을 맞춰 놓은 이상 이건 피할 수 없는데, 작은 얼음이 더 깊이 잠기는 건
-    // 실제로도 그래서 어색하지 않다. -720 은 곰이 설 마른 얼음을 61px 남기는 선이다.
-    //
-    // 어둠막이 이 구간을 76% 눌러도 효과는 남는다. 막이 마른 얼음과 잠긴 얼음을 똑같이
-    // 누르므로 둘 사이의 차이는 비율 그대로 살아 있기 때문이다.
-    const float WATER_LINE_Y    = -720f;  // ── 조정 손잡이: 수면 높이 ──
-    // 어둠막이 이미 이 구간을 76% 눌러 놔서, 물막을 어지간히 넣어서는 그늘 하나 더 진
-    // 것으로밖에 안 보인다. 잠긴 걸로 읽히게 만드는 건 진하기보다 수면의 밝은 한 줄이다 —
-    // 그 선이 있어야 "여기가 물 표면"이 되고, 없으면 그냥 어두운 사각형이 얹힌 게 된다.
-    const float WATER_ALPHA_TOP = 0.58f;  // ── 조정 손잡이: 수면 바로 아래의 진하기 ──
-    const float WATER_ALPHA_BOT = 0.82f;  // ── 조정 손잡이: 가장 깊은 곳의 진하기 ──
-    const float WATER_EDGE_PX   = 10f;    // ── 조정 손잡이: 수면에 걸리는 빛의 두께 ──
-    const float WATER_EDGE_A    = 0.92f;  // ── 조정 손잡이: 그 빛의 세기 ──
-    static readonly Color32 WATER_TINT = Sat( 24,  70, 112);
-    static readonly Color32 WATER_EDGE = Sat(150, 199, 226);
+    // 보이는 곳은 사실상 두 군데다. 판(-480..480, -400..560) 위의 하늘, 그리고 판과 조각
+    // 트레이 사이. 판 위로 솟는 건 왼쪽 끝 고층 하나와 오른쪽 피뢰침 탑 하나뿐이다 —
+    // 하늘을 비워 둬야 삭막하고, 점수 문구(위에서 75~205)도 그래야 읽힌다.
+    static readonly Vector4[] FAR_BUILDINGS = {
+        new Vector4(-270f, 160f, -120f,  0f),
+        new Vector4( -70f, 120f,   60f, 90f),
+        new Vector4( 120f, 150f, -230f,  0f),
+        new Vector4( 310f, 170f,  140f,  0f),
+    };
+    static readonly Vector4[] MID_BUILDINGS = {
+        new Vector4(-330f, 190f, -400f,   0f),
+        new Vector4(  60f, 180f, -330f,   0f),
+        new Vector4( 340f, 190f,  600f,  90f),   // 붉은 점이 도움말 버튼(위에서 55~155) 밑으로 오게 낮췄다
+    };
+    static readonly Vector4[] NEAR_BUILDINGS = {
+        new Vector4(-470f, 220f,  820f, 0f),
+        new Vector4( 475f, 170f,  300f, 0f),
+        new Vector4(-130f, 240f, -640f, 0f),
+        new Vector4( 200f, 220f, -710f, 0f),
+    };
 
-    // 하늘 그라데이션이 수평선 색에 다다르는 높이. 그리드 아랫변(-395)에 맞춰,
-    // 판 뒤는 색이 거의 안 변하고 판 위쪽에서만 남색으로 깊어지게 한다.
-    const float SKY_HORIZON_Y = -395f;
+    const float SIDE_RATIO   = 0.22f;  // 그늘진 옆면이 차지하는 폭 비율 (오른쪽)
+    const float WIN_MARGIN   = 0.12f;  // 왼쪽 벽 두께 (폭 비율)
+    const float SNOW_CAP_H   = 10f;    // 지붕에 쌓인 눈 두께
+    const float SNOW_CAP_OUT = 4f;     // 지붕 밖으로 삐져나온 폭
 
-    // ── 움직임 (전부 "아주 천천히") ──────────────────────────────
-    const float BERG_BOB_PX   = 16f;   // ── 조정 손잡이: 빙산이 오르내리는 높이 ──
-    const float BERG_BOB_SEC  = 9f;    // ── 조정 손잡이: 한 번 오르내리는 데 걸리는 시간 ──
-    const float CLOUD_SPEED   = 7f;    // ── 조정 손잡이: 구름이 흐르는 속도(px/초) ──
-    const float WAVE_SPEED    = 3.5f;  // ── 조정 손잡이: 물결이 흐르는 속도(px/초) ──
+    // ── 안개 ────────────────────────────────────────────────────
+    // 먼 겹과 중간 겹 뒤에 한 장씩. 위는 투명, 화면 아래로 갈수록 SKY_HORIZON 이 짙어진다.
+    const float FOG_START_Y = 200f;   // ── 조정 손잡이: 안개가 시작되는 높이 ──
+    const float FOG_ALPHA   = 0.27f;  // ── 조정 손잡이: 화면 맨 아래 안개 진하기 ──
 
-    // 화면 밖으로 나간 뒤 반대편에서 다시 들어오는 폭. 캔버스 기준 해상도(1080)에
-    // 요소 크기를 더해 넉넉히 잡는다 — 좁으면 사라지는 순간이 눈에 띈다.
-    const float WRAP_W = 1080f + 400f;
+    // ── 창문 깜박임 ─────────────────────────────────────────────
+    // 비율로 뽑으면 대부분 판이나 조각 트레이 뒤에 떨어져 하나도 안 보인다. 그래서 실제로
+    // 드러나는 칸만 후보로 모은 뒤 정해진 개수를 고른다.
+    const int   FLICKER_COUNT   = 6;     // ── 조정 손잡이: 깜박이는 창 수 ──
+    const float FLICKER_SPACING = 120f;  // 서로 이만큼은 떨어뜨린다 — 몰리면 한 건물만 요란하다
+    const float FLICKER_ON_MIN  = 3f,   FLICKER_ON_MAX  = 9f;   // 켜져 있는 시간
+    const float FLICKER_OFF_MIN = 0.8f, FLICKER_OFF_MAX = 3f;   // 꺼져 있는 시간
+    const float STUTTER_CHANCE  = 0.4f;  // 켜질 때 형광등처럼 몇 번 떨다 켜질 확률
 
-    // 풍경 위에 까는 검은 막. 빙산이 얼음 블록과 같은 흰 계열이라 그냥 두면 판이 배경에
-    // 묻힌다. 배경을 어둡게 눌러 두면 블록만 밝게 남아 대비가 산다.
-    // 이 막은 IceBackground 의 마지막 자식이라 풍경 위·그리드 아래에 놓인다.
-    //
-    // 위는 고르게, 아래로 갈수록 짙어진다. 조각 트레이가 화면 아래 28% 를 쓰는데 거기
-    // 하늘색이 그대로 밝아서 조각 후보가 배경에 묻혔다.
-    //
-    // 아래쪽은 검정이 아니라 남색으로 누른다. 하늘색은 파랑 채널이 255 라 검정을 겹쳐도
-    // 밝기가 잘 안 떨어진다 — 같은 세기로 눌렀을 때 조각 높이의 배경 휘도가 검정은 0.152,
-    // 남색은 0.098 이다. 남색 쪽이 빈 셀의 물색과도 같은 계열이라 화면 아래가 물로 이어진다.
+    // 배경이 가려지는 곳. 판은 _gridRt(960x960, y +80), 트레이는 화면 아래 360.
+    static readonly Rect GRID_AREA = new Rect(-480f, -400f, 960f, 960f);
+    const float TRAY_H = 360f;
+    const float FADE_SPEED      = 22f;   // 켜지고 꺼지는 속도 (1/초)
+
+    // ── 피뢰침 붉은 점 ──────────────────────────────────────────
+    static readonly Color32 BEACON = new Color32(235, 70, 70, 255);
+    const float BEACON_PERIOD = 2.6f;   // ── 조정 손잡이: 한 번 깜박이는 주기 ──
+    const float BEACON_ON     = 1.0f;   // 그중 켜져 있는 시간
+    const float BEACON_SIZE   = 12f;
+    const float BEACON_GLOW   = 44f;
+
+    // ── 눈 ──────────────────────────────────────────────────────
+    const int   SNOW_COUNT     = 80;     // ── 조정 손잡이: 눈송이 수 ──
+    const float SNOW_SPEED_MIN = 40f,  SNOW_SPEED_MAX = 110f;   // px/초
+    const float SNOW_SIZE_MIN  = 4f,   SNOW_SIZE_MAX  = 11f;
+    static readonly Color32 SNOW_COLOR = new Color32(214, 218, 238, 255);
+
+    // ── 아래쪽 어둠막 ───────────────────────────────────────────
+    // 조각 트레이가 화면 아래 28% 를 쓰는데, 거기 건물 창문과 눈이 그대로 보이면 조각 후보가
+    // 묻힌다. 아래로 갈수록 어두운 남색으로 눌러 둔다. 마지막 자식이라 풍경 위·그리드 아래다.
     //
     // 램프는 트레이 위(0.276)보다 넉넉히 높은 데서 시작해야 한다. 트레이 경계에서 시작하면
     // 정작 조각이 놓인 높이(0.182)까지 짙어질 거리가 모자라 효과가 거의 없다.
-    const float DIM_ALPHA        = 0f;   // ── 조정 손잡이: 위쪽을 누르는 정도 ──
     const float DIM_BOTTOM_ALPHA = 0.45f;  // ── 조정 손잡이: 화면 맨 아래를 누르는 정도 ──
     const float DIM_RAMP_H       = 0.45f;  // ── 조정 손잡이: 짙어지기 시작하는 높이(화면 비율) ──
+    static readonly Color32 DIM_COL = new Color32(8, 12, 32, 255);
 
-    static readonly Color32 DIM_TOP_COL    = new Color32(0,  0,  0, 255);
-    static readonly Color32 DIM_BOTTOM_COL = new Color32(2, 28, 62, 255);
+    // 배치가 매번 같아야 한다. 판마다 불 켜진 창이 바뀌면 다른 동네처럼 보인다.
+    const int SEED = 7;
 
-    // 곰은 작은 빙산의 자식으로 붙인다. 그래야 빙산이 오르내릴 때 같이 움직인다 —
-    // 따로 띄우면 둘의 위상을 맞춰 줘야 하고, 한쪽 주기를 바꾸는 순간 어긋난다.
-    // y 는 빙산 윗면 높이에서 역산했다. 스프라이트 rect 위쪽에 여백이 있어 얼음 윗면이
-    // 로컬 y 95 쯤이고, 곰 실제 높이가 103 이라 중심이 143 이면 발이 얼음에 닿는다.
-    // 다만 얼음 윗면이 왼쪽으로 기울어 앞발 쪽이 더 낮다. 143 이면 거기서 1~2px 뜨므로
-    // 138 까지 내려 앞발도 확실히 묻히게 했다.
-    static readonly Vector2 BEAR_OFFSET = new Vector2(-9f, 138f);
-    const float BEAR_SIZE = 208f;   // polarbear.png 는 200px 정사각에 여백이 있어 실제 곰은 약 162px
+    // ═══════════════════════════════════════════════════════════
 
-    struct Drifter
+    class Flicker
     {
-        public RectTransform rt;
-        public float speed;     // px/초. 음수면 왼쪽으로
-        public float baseY;
-        public float bobAmp;    // 0이면 위아래로 안 움직인다
-        public float bobSec;
-        public float bobPhase;
+        public Image img;
+        public bool  on;
+        public float alpha;
+        public float timer;
+        public int   stutter;   // 남은 떨림 횟수
     }
 
-    Drifter[] _items;
+    struct FlickerSpot
+    {
+        public RectTransform body;
+        public Vector2 pos, size, center;   // pos/size 는 몸통 기준, center 는 캔버스 기준
+        public Color32 col;
+    }
 
-    /// <summary>배경 이미지 바로 위에 아이스 풍경을 세운다.</summary>
+    struct Beacon
+    {
+        public Image dot, glow;
+        public float phase;
+    }
+
+    struct Flake
+    {
+        public RectTransform rt;
+        public Image img;
+        public float x, y, speed, swayAmp, swaySec, swayPhase;
+    }
+
+    readonly List<Flicker> _flickers = new List<Flicker>();
+    readonly List<Beacon>  _beacons  = new List<Beacon>();
+    readonly List<FlickerSpot> _spots = new List<FlickerSpot>();
+    Flake[] _flakes;
+    System.Random _rnd;
+    Sprite _softDot, _disc;
+
+    /// <summary>배경 이미지 바로 위에 도시 풍경을 세운다.</summary>
     public static IceBackground Create(Transform canvas, int siblingIndex)
     {
         var go = new GameObject("IceBackground");
@@ -154,438 +195,408 @@ public class IceBackground : MonoBehaviour
 
     void Build()
     {
-        var list = new System.Collections.Generic.List<Drifter>();
+        _rnd     = new System.Random(SEED);
+        _softDot = MakeDotSprite(32, true);
+        _disc    = MakeDotSprite(32, false);
 
-        // ── 하늘 ─────────────────────────────────────────────
-        // 맨 먼저 세운다. 형제 순서가 곧 그리는 순서라 첫 자식이 제일 뒤에 깔린다.
-        AddSky();
+        // 형제 순서가 곧 그리는 순서라 먼저 세운 것이 뒤에 깔린다.
+        AddFullScreen("Sky", MakeSkySprite(256));
 
-        // ── 구름 ─────────────────────────────────────────────
-        // 셋 다 속도가 다르다. 같으면 한 덩어리가 통째로 미끄러지는 것처럼 보인다.
-        var cloudW = MakeCloudSprite(300, 190, CLOUD_WHITE, CLOUD_BLUE);
-        var cloudB = MakeCloudSprite(300, 180, CLOUD_DARK,  CLOUD_DARK);
-        var cloudL = MakeCloudSprite(300, 165, CLOUD_BLUE,  CLOUD_WHITE);
+        AddLayer(FAR, FAR_BUILDINGS);
+        AddFullScreen("Fog", MakeFogSprite(256));
+        AddLayer(MID, MID_BUILDINGS);
+        AddFullScreen("Fog", MakeFogSprite(256));
+        AddLayer(NEAR, NEAR_BUILDINGS);
+        PickFlickers();
 
-        list.Add(Add(cloudW, new Vector2(-345, 580), new Vector2(300, 190), CLOUD_SPEED,        0f, 0f, 0f));
-        list.Add(Add(cloudB, new Vector2( -13, 500), new Vector2(300, 180), CLOUD_SPEED * 0.62f, 0f, 0f, 0f));
-        list.Add(Add(cloudL, new Vector2( 362, 685), new Vector2(300, 165), CLOUD_SPEED * 1.35f, 0f, 0f, 0f));
-
-        // ── 빙산 ─────────────────────────────────────────────
-        // 흐르지 않고(속도 0) 제자리에서 아주 느리게 오르내린다. 위상을 어긋나게 둬야
-        // 둘이 한 몸처럼 같이 출렁이지 않는다.
-        //
-        // y 는 두 선 사이에 끼워 맞춘 값이다.
-        //   위   그리드 아랫변이 y -395 다. _gridRt 가 +80 올라가 있으므로 셀 배치값
-        //        (-420 - 55 = -475)에 그 80 을 더해야 실제 위치가 나온다.
-        //        빙산도 곰도 오르내림 폭까지 더해 이 선을 안 넘는다.
-        //   아래 배너가 화면 밑 150 쯤(y -810 아래)을 덮는다. 큰 빙산은 14%, 작은 빙산은
-        //        29% 가 가리는데, 곰은 그보다 한참 위라 온전히 남는다.
-        //
-        // 둘의 밑동은 같은 높이(-875)에 둔다. 같은 바다에 떠 있는 것이라 수면선이 어긋나면
-        // 한쪽이 가라앉은 것처럼 보인다. 그래서 큰 빙산을 내릴 때 작은 쪽도 같이 내렸다.
-        // 이 조합에서 가장 높이 솟는 건 곰 머리이고, 그것도 -561 이라 판까지 166 남는다.
-        var bergBig = MakeBergSprite(520, 450, BIG_BERG, BIG_BERG_SHADE);
-        var bergSml = MakeBergSprite(260, 225, SML_BERG, SML_BERG_SHADE);
-
-        list.Add(Add(bergBig, new Vector2(-218, -650), new Vector2(520, 450), 0f, BERG_BOB_PX,        BERG_BOB_SEC,        0f));
-
-        var sml = Add(bergSml, new Vector2(347, -762), new Vector2(260, 225),
-                      0f, BERG_BOB_PX * 0.7f, BERG_BOB_SEC * 1.3f, 2.1f);
-        list.Add(sml);
-        AddBear(sml.rt);
-
-        // ── 물결 ─────────────────────────────────────────────
-        // 바다를 그리지 않고 짧은 선 몇 개로만 암시한다. 원본이 그렇게 하고 있고,
-        // 그 덕에 하늘색 한 장으로 하늘과 바다를 겸할 수 있다.
-        //
-        // 빙산 다음에 세운다. 형제 순서가 곧 그리는 순서라 물결이 빙산 앞을 지나간다.
-        // 한때는 반대로 뒀었다 — 물결이 빙산 몸통을 가로지르는 게 이상해서였는데,
-        // 수면(WATER_LINE_Y)이 생긴 뒤로 물결은 전부 그 아래에 있다. 가로지르는 건
-        // 잠긴 부분뿐이고, 빙산 앞 물에 이는 잔물결은 원래 그렇게 보인다.
-        //
-        // 빙산을 내린 만큼 같이 내려 밑동 근처에 둔다. 여덟 중 다섯은 배너에 가리지만
-        // 물결은 어차피 거들 뿐이고, 판 근처로 올리면 빈 셀 사이에서 선이 어른거려 더 나쁘다.
-        var waveA = MakeBarSprite(140, 16, WAVE_DARK);
-        var waveB = MakeBarSprite( 96, 16, WAVE_DEEP);
-        float[,] waves = {
-            { -400, -825, 140 }, { -330, -865, 96 }, {  -60, -795, 140 },
-            {   70, -805,  96 }, {  240, -855, 140 }, {  360, -885, 96 },
-            {  430, -805,  96 }, { -180, -895, 140 },
-        };
-        for (int i = 0; i < waves.GetLength(0); i++)
-        {
-            bool wide = waves[i, 2] > 100f;
-            list.Add(Add(wide ? waveA : waveB,
-                         new Vector2(waves[i, 0], waves[i, 1]),
-                         new Vector2(waves[i, 2], 16),
-                         WAVE_SPEED * (i % 2 == 0 ? 1f : -0.7f), 0f, 0f, 0f));
-        }
-
-        _items = list.ToArray();
-
-        // 빙산 다음, 어둠막 앞. 빙산을 덮어야 잠긴 것으로 보인다.
-        AddWater();
+        AddSnow();
 
         // 맨 마지막에 깔아야 풍경 전체를 덮는다.
-        AddDim();
+        AddFullScreen("Dim", MakeDimSprite(256));
     }
 
-    /// <summary>작은 빙산 위에 곰을 세운다. 빙산의 자식이라 오르내림을 그대로 따라간다.</summary>
-    void AddBear(RectTransform berg)
+    // ── 건물 ────────────────────────────────────────────────────
+
+    void AddLayer(Layer layer, Vector4[] buildings)
     {
-        var tex = Resources.Load<Texture2D>("Sprites/Effects/polarbear");
-        if (tex == null) return;   // 없으면 곰만 빠지고 나머지 풍경은 그대로 선다
-
-        var go = new GameObject("PolarBear");
-        go.transform.SetParent(berg, false);
-
-        var img = go.AddComponent<Image>();
-        img.sprite         = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height),
-                                           new Vector2(0.5f, 0.5f));
-        img.preserveAspect = true;
-        img.raycastTarget  = false;
-
-        var rt = go.GetComponent<RectTransform>();
-        rt.anchorMin        = rt.anchorMax = new Vector2(0.5f, 0.5f);
-        rt.pivot            = new Vector2(0.5f, 0.5f);
-        rt.anchoredPosition = BEAR_OFFSET;
-        rt.sizeDelta        = new Vector2(BEAR_SIZE, BEAR_SIZE);
+        // 창문 무늬는 겹마다 한 장. 건물마다 같은 걸 반복해 깐다.
+        var tile = MakeWindowTile(layer);
+        foreach (var b in buildings)
+            AddBuilding(layer, tile, b.x, b.y, b.z, b.w);
     }
 
-    /// <summary>
-    /// 수면 아래를 덮는 반투명 막. 빙산 위에 오므로 밑동이 물에 잠긴 것으로 읽힌다.
-    /// 화면 전체가 아니라 수면 아래만 차지한다 — 위쪽은 어차피 투명이라 쓸 데가 없다.
-    /// </summary>
-    void AddWater()
+    void AddBuilding(Layer L, Texture2D tile, float cx, float w, float top, float antenna)
     {
-        float h = WATER_LINE_Y + CanvasMetrics.HalfHeight;   // 수면에서 화면 밑까지
-        if (h <= 1f) return;             // 수면을 화면 밖으로 내리면 그릴 게 없다
-
-        var go = new GameObject("Water");
-        go.transform.SetParent(transform, false);
-
-        var img = go.AddComponent<Image>();
-        img.sprite        = MakeWaterSprite(Mathf.RoundToInt(h));
-        img.type          = Image.Type.Simple;
-        img.color         = Color.white;   // 색과 세기는 스프라이트가 들고 있다
-        img.raycastTarget = false;
-
-        var rt = go.GetComponent<RectTransform>();
-        rt.anchorMin        = new Vector2(0f, 0f);
-        rt.anchorMax        = new Vector2(1f, 0f);
-        rt.pivot            = new Vector2(0.5f, 0f);
-        rt.anchoredPosition = Vector2.zero;
-        rt.sizeDelta        = new Vector2(0f, h);
-    }
-
-    /// <summary>
-    /// 수면 막. 얕은 곳은 옅고 깊을수록 짙어지며, 맨 위 몇 px 은 수면에 걸린 빛으로 밝다.
-    /// 그 한 줄이 없으면 그냥 어두운 사각형이라 "잠겼다"가 아니라 "가려졌다"로 보인다.
-    /// Texture2D 는 y=0 이 아래쪽이라 깊은 쪽이 낮은 y 다.
-    /// </summary>
-    static Sprite MakeWaterSprite(int h)
-    {
-        var tex = new Texture2D(1, h, TextureFormat.ARGB32, false);
-        tex.filterMode = FilterMode.Bilinear;
-        tex.wrapMode   = TextureWrapMode.Clamp;
-
-        var px = new Color32[h];
-        for (int y = 0; y < h; y++)
-        {
-            float down = h - 1 - y;                  // 수면에서 내려온 거리
-            float t    = h > 1 ? down / (h - 1f) : 0f;
-            float a    = Mathf.Lerp(WATER_ALPHA_TOP, WATER_ALPHA_BOT, t);
-            Color32 col = WATER_TINT;
-
-            float edge = Mathf.Exp(-(down / WATER_EDGE_PX) * (down / WATER_EDGE_PX));
-            if (edge > 0.02f)
-            {
-                col = Color32.Lerp(WATER_TINT, WATER_EDGE, edge);
-                a   = Mathf.Lerp(a, WATER_EDGE_A, edge);
-            }
-
-            px[y] = new Color32(col.r, col.g, col.b, (byte)(Mathf.Clamp01(a) * 255f));
-        }
-
-        tex.SetPixels32(px);
-        tex.Apply();
-        return Sprite.Create(tex, new Rect(0, 0, 1, h), new Vector2(0.5f, 0.5f));
-    }
-
-    /// <summary>화면 전체를 덮는 하늘. 위에서 수평선으로 색이 옮겨간다.</summary>
-    void AddSky()
-    {
-        var go = new GameObject("Sky");
-        go.transform.SetParent(transform, false);
-        go.transform.SetAsFirstSibling();
-
-        var img = go.AddComponent<Image>();
-        img.sprite        = MakeSkySprite(256);
-        img.type          = Image.Type.Simple;
-        img.color         = Color.white;   // 색은 스프라이트가 들고 있다
-        img.raycastTarget = false;
-
-        var rt = go.GetComponent<RectTransform>();
-        rt.anchorMin = Vector2.zero;
-        rt.anchorMax = Vector2.one;
-        rt.offsetMin = rt.offsetMax = Vector2.zero;
-    }
-
-    /// <summary>
-    /// 세로로 색이 옮겨가는 하늘. 가로로는 변하지 않으므로 1px 폭이면 되고, 늘려서 쓴다.
-    /// Texture2D 는 y=0 이 아래쪽이라 수평선 쪽이 낮은 y 다.
-    /// </summary>
-    static Sprite MakeSkySprite(int h)
-    {
-        var tex = new Texture2D(1, h, TextureFormat.ARGB32, false);
-        tex.filterMode = FilterMode.Bilinear;
-        tex.wrapMode   = TextureWrapMode.Clamp;   // 없으면 위아래 끝이 반대쪽 색을 물어 온다
-
-        var px = new Color32[h];
         float half = CanvasMetrics.HalfHeight;
-        for (int y = 0; y < h; y++)
+        float h    = top + half;          // 지붕에서 화면 아래끝까지
+        if (h <= 1f) return;
+
+        // 몸통. 피벗을 지붕 가운데에 둬서 자식들을 지붕 기준으로 놓는다.
+        var body = NewRect("Building", transform);
+        body.anchorMin = body.anchorMax = new Vector2(0.5f, 0.5f);
+        body.pivot            = new Vector2(0.5f, 1f);
+        body.anchoredPosition = new Vector2(cx, top);
+        body.sizeDelta        = new Vector2(w, h);
+        AddSolid(body.gameObject, L.body);
+
+        // 그늘진 오른쪽 면. 이 한 줄이 있어야 납작한 판이 아니라 기둥으로 읽힌다.
+        var side = NewRect("Side", body);
+        side.anchorMin = new Vector2(1f - SIDE_RATIO, 0f);
+        side.anchorMax = Vector2.one;
+        side.offsetMin = side.offsetMax = Vector2.zero;
+        AddSolid(side.gameObject, L.side);
+
+        // 창문. 칸 수를 정수로 맞춰 깔아야 무늬가 위아래 어디서도 잘리지 않는다.
+        int   cols  = Mathf.FloorToInt((w * (1f - SIDE_RATIO) - w * WIN_MARGIN) / L.cellW);
+        float winTop = L.cellH * 1.2f;                       // 지붕에서 첫 줄까지
+        int   rows  = Mathf.FloorToInt((h - winTop) / L.cellH);
+        float left  = -w * 0.5f + w * WIN_MARGIN;            // 몸통 피벗 기준
+        if (cols > 0 && rows > 0)
         {
-            // 캔버스 좌표(위가 +half, 아래가 -half)로 되돌려서 수평선까지의 비율을 잡는다.
-            float cy = -half + CanvasMetrics.Height * (y / (h - 1f));
-            float t  = Mathf.Clamp01((half - cy) / (half - SKY_HORIZON_Y));
-            t = t * t * (3f - 2f * t);   // 선형이면 중간에 띠가 보인다
-            px[y] = Color32.Lerp(SKY, SKY_HORIZON, t);
+            var win = NewRect("Windows", body);
+            win.anchorMin = win.anchorMax = new Vector2(0.5f, 1f);
+            win.pivot            = new Vector2(0f, 1f);
+            win.anchoredPosition = new Vector2(left, -winTop);
+            win.sizeDelta        = new Vector2(cols * L.cellW, rows * L.cellH);
+            var raw = win.gameObject.AddComponent<RawImage>();
+            raw.texture       = tile;
+            raw.uvRect        = new Rect(0f, 0f, cols, rows);
+            raw.raycastTarget = false;
+
+            // 켜진 창은 무늬 위에 칸 하나 크기로 덧댄다.
+            // 꺼진 창 중 화면에 드러나는 것은 깜박임 후보로 모아 둔다 (PickFlickers).
+            var size = new Vector2(L.winW, L.winH);
+            for (int r = 0; r < rows; r++)
+                for (int c = 0; c < cols; c++)
+                {
+                    bool lit = _rnd.NextDouble() < L.litRate;
+                    Color32 col = _rnd.NextDouble() < LIT_COOL_RATE ? LIT_COOL : LIT_WARM;
+                    col = Color32.Lerp(col, L.body, 1f - (1f - L.litDim) * (1f - LIT_FADE));
+
+                    var pos = new Vector2(left + c * L.cellW + (L.cellW - L.winW) * 0.5f,
+                                          -winTop - r * L.cellH - (L.cellH - L.winH) * 0.5f);
+                    if (lit) { AddLitWindow(body, pos, size, col); continue; }
+
+                    var center = new Vector2(cx + pos.x + L.winW * 0.5f, top + pos.y - L.winH * 0.5f);
+                    if (L.flickers && IsExposed(center, size))
+                        _spots.Add(new FlickerSpot { body = body, pos = pos, size = size, center = center, col = col });
+                }
         }
 
-        tex.SetPixels32(px);
-        tex.Apply();
-        return Sprite.Create(tex, new Rect(0, 0, 1, h), new Vector2(0.5f, 0.5f));
+        // 지붕에 쌓인 눈. 몸통보다 살짝 넓어야 처마에 얹힌 것처럼 보인다.
+        var cap = NewRect("Snow", body);
+        cap.anchorMin = cap.anchorMax = new Vector2(0.5f, 1f);
+        cap.pivot            = new Vector2(0.5f, 0f);
+        cap.anchoredPosition = new Vector2(0f, -2f);
+        cap.sizeDelta        = new Vector2(w + SNOW_CAP_OUT * 2f, SNOW_CAP_H);
+        AddSolid(cap.gameObject, L.snow);
+
+        if (antenna > 0f) AddAntenna(body, L, antenna);
     }
 
-    /// <summary>
-    /// 풍경 위에 까는 검은 막. 마지막 자식이라 풍경만 덮고 그리드는 못 덮는다.
-    /// 아래로 갈수록 짙어지므로 색이 아니라 스프라이트가 세기를 들고 있다.
-    /// </summary>
-    void AddDim()
+    /// <summary>창이 화면 안에 온전히 있고 판·트레이에 가리지 않는지.</summary>
+    static bool IsExposed(Vector2 c, Vector2 size)
     {
-        var go = new GameObject("Dim");
-        go.transform.SetParent(transform, false);
-        go.transform.SetAsLastSibling();
-
-        var img = go.AddComponent<Image>();
-        img.sprite        = MakeDimSprite(256);
-        img.type          = Image.Type.Simple;
-        img.color         = Color.white;   // 세기는 스프라이트가 들고 있다
-        img.raycastTarget = false;
-
-        var rt = go.GetComponent<RectTransform>();
-        rt.anchorMin = Vector2.zero;
-        rt.anchorMax = Vector2.one;
-        rt.offsetMin = rt.offsetMax = Vector2.zero;
+        float halfW = CanvasMetrics.REF_W * 0.5f;
+        if (c.x - size.x * 0.5f < -halfW || c.x + size.x * 0.5f > halfW) return false;
+        if (c.y + size.y * 0.5f > CanvasMetrics.HalfHeight) return false;
+        if (c.y - size.y * 0.5f < -CanvasMetrics.HalfHeight + TRAY_H) return false;
+        return !GRID_AREA.Contains(c);
     }
 
-    Drifter Add(Sprite spr, Vector2 pos, Vector2 size, float speed,
-                float bobAmp, float bobSec, float bobPhase)
+    /// <summary>모아 둔 후보 중 서로 떨어진 것들로 FLICKER_COUNT 개를 깜박이는 창으로 만든다.</summary>
+    void PickFlickers()
     {
-        var go = new GameObject("IceItem");
-        go.transform.SetParent(transform, false);
+        // 섞어서 앞에서부터 고르되, 이미 고른 창과 너무 가까우면 건너뛴다.
+        for (int i = _spots.Count - 1; i > 0; i--)
+        {
+            int j = _rnd.Next(i + 1);
+            var t = _spots[i]; _spots[i] = _spots[j]; _spots[j] = t;
+        }
 
-        var img = go.AddComponent<Image>();
-        img.sprite        = spr;
-        img.raycastTarget = false;
+        var picked = new List<Vector2>();
+        foreach (var s in _spots)
+        {
+            if (picked.Count >= FLICKER_COUNT) break;
+            bool near = false;
+            foreach (var p in picked)
+                if ((p - s.center).sqrMagnitude < FLICKER_SPACING * FLICKER_SPACING) { near = true; break; }
+            if (near) continue;
+            picked.Add(s.center);
 
-        var rt = go.GetComponent<RectTransform>();
-        rt.anchorMin        = rt.anchorMax = new Vector2(0.5f, 0.5f);
+            var img = AddLitWindow(s.body, s.pos, s.size, s.col);
+            bool on = _rnd.NextDouble() < 0.5;
+            // 첫 전환은 일찍 오게 한다 — 들어오자마자 몇 초씩 아무 일도 없으면 정지 화면 같다.
+            var f = new Flicker { img = img, on = on, alpha = on ? 1f : 0f, timer = Range(0.3f, 3f) };
+            SetAlpha(img, f.alpha);
+            _flickers.Add(f);
+        }
+        _spots.Clear();
+    }
+
+    void AddAntenna(RectTransform body, Layer L, float len)
+    {
+        var rod = NewRect("Antenna", body);
+        rod.anchorMin = rod.anchorMax = new Vector2(0.5f, 1f);
+        rod.pivot            = new Vector2(0.5f, 0f);
+        rod.anchoredPosition = Vector2.zero;
+        rod.sizeDelta        = new Vector2(6f, len);
+        AddSolid(rod.gameObject, L.body);
+
+        // 번짐을 먼저 깔고 점을 위에 얹는다.
+        var glow = AddDot(body, new Vector2(0f, len), BEACON_GLOW, _softDot, BEACON);
+        var dot  = AddDot(body, new Vector2(0f, len), BEACON_SIZE, _disc,    BEACON);
+        // 탑마다 박자를 어긋나게 둬야 두 점이 한꺼번에 깜박이지 않는다.
+        _beacons.Add(new Beacon { dot = dot, glow = glow, phase = Range(0f, BEACON_PERIOD) });
+    }
+
+    Image AddLitWindow(RectTransform parent, Vector2 topLeft, Vector2 size, Color32 col)
+    {
+        var rt = NewRect("Lit", parent);
+        rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 1f);
+        rt.pivot            = new Vector2(0f, 1f);
+        rt.anchoredPosition = topLeft;
+        rt.sizeDelta        = size;
+        return AddSolid(rt.gameObject, col);
+    }
+
+    Image AddDot(RectTransform parent, Vector2 pos, float size, Sprite spr, Color32 col)
+    {
+        var rt = NewRect("Beacon", parent);
+        rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 1f);
         rt.pivot            = new Vector2(0.5f, 0.5f);
         rt.anchoredPosition = pos;
-        rt.sizeDelta        = size;
-
-        return new Drifter {
-            rt = rt, speed = speed, baseY = pos.y,
-            bobAmp = bobAmp, bobSec = bobSec <= 0f ? 1f : bobSec, bobPhase = bobPhase
-        };
+        rt.sizeDelta        = new Vector2(size, size);
+        var img = AddSolid(rt.gameObject, col);
+        img.sprite = spr;
+        return img;
     }
+
+    // ── 눈 ──────────────────────────────────────────────────────
+
+    void AddSnow()
+    {
+        float half = CanvasMetrics.HalfHeight;
+        _flakes = new Flake[SNOW_COUNT];
+        for (int i = 0; i < SNOW_COUNT; i++)
+        {
+            // 작은 송이일수록 멀리 있는 것 — 느리고 흐리다.
+            float t    = Range(0f, 1f);
+            float size = Mathf.Lerp(SNOW_SIZE_MIN, SNOW_SIZE_MAX, t * t);
+            var rt  = NewRect("Flake", transform);
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.sizeDelta = new Vector2(size, size);
+            var img = AddSolid(rt.gameObject, SNOW_COLOR);
+            img.sprite = _softDot;
+            SetAlpha(img, Mathf.Lerp(0.35f, 0.85f, t));
+
+            _flakes[i] = new Flake {
+                rt = rt, img = img,
+                x = Range(-CanvasMetrics.REF_W * 0.5f, CanvasMetrics.REF_W * 0.5f),
+                y = Range(-half, half),
+                speed     = Mathf.Lerp(SNOW_SPEED_MIN, SNOW_SPEED_MAX, t),
+                swayAmp   = Range(8f, 28f),
+                swaySec   = Range(3f, 7f),
+                swayPhase = Range(0f, 1f),
+            };
+        }
+    }
+
+    // ── 움직임 ──────────────────────────────────────────────────
 
     void Update()
     {
-        if (_items == null) return;
-
         float dt = Time.deltaTime;
-        float t  = Time.time;
+        float tm = Time.time;
 
-        for (int i = 0; i < _items.Length; i++)
+        // 창문
+        for (int i = 0; i < _flickers.Count; i++)
         {
-            var d = _items[i];
-            if (d.rt == null) continue;
-
-            var p = d.rt.anchoredPosition;
-
-            if (d.speed != 0f)
+            var f = _flickers[i];
+            f.timer -= dt;
+            if (f.timer <= 0f)
             {
-                p.x += d.speed * dt;
-                // 한쪽 끝을 넘어가면 반대편으로 되돌린다. 폭을 넉넉히 잡아서
-                // 되돌아오는 순간이 화면 안에서 보이지 않는다.
-                if (p.x >  WRAP_W * 0.5f) p.x -= WRAP_W;
-                if (p.x < -WRAP_W * 0.5f) p.x += WRAP_W;
+                f.on = !f.on;
+                if (f.stutter > 0)
+                {
+                    // 떨리는 중 — 짧게 켜졌다 꺼졌다를 되풀이하다 마지막에 켜진 채로 남는다.
+                    f.stutter--;
+                    f.timer = f.stutter == 0 ? Range(FLICKER_ON_MIN, FLICKER_ON_MAX) : Range(0.06f, 0.16f);
+                    if (f.stutter == 0) f.on = true;
+                }
+                else if (f.on && Range(0f, 1f) < STUTTER_CHANCE)
+                {
+                    f.stutter = _rnd.Next(2, 5);
+                    f.timer   = Range(0.06f, 0.16f);
+                }
+                else
+                {
+                    f.timer = f.on ? Range(FLICKER_ON_MIN, FLICKER_ON_MAX)
+                                   : Range(FLICKER_OFF_MIN, FLICKER_OFF_MAX);
+                }
             }
+            f.alpha = Mathf.MoveTowards(f.alpha, f.on ? 1f : 0f, FADE_SPEED * dt);
+            SetAlpha(f.img, f.alpha);
+        }
 
-            p.y = d.bobAmp > 0f
-                ? d.baseY + d.bobAmp * Mathf.Sin((t / d.bobSec + d.bobPhase) * Mathf.PI * 2f)
-                : d.baseY;
+        // 피뢰침. 켜질 때와 꺼질 때 살짝 번지게 — 뚝 끊기면 화면 오류처럼 보인다.
+        for (int i = 0; i < _beacons.Count; i++)
+        {
+            var b = _beacons[i];
+            float p = Mathf.Repeat(tm + b.phase, BEACON_PERIOD);
+            float a = Mathf.Clamp01(Mathf.Min(p, BEACON_ON - p) / 0.15f);
+            SetAlpha(b.dot,  Mathf.Lerp(0.25f, 1f, a));
+            SetAlpha(b.glow, 0.35f * a);
+        }
 
-            d.rt.anchoredPosition = p;
+        // 눈
+        if (_flakes == null) return;
+        float half = CanvasMetrics.HalfHeight;
+        for (int i = 0; i < _flakes.Length; i++)
+        {
+            var f = _flakes[i];
+            f.y -= f.speed * dt;
+            if (f.y < -half - 20f)
+            {
+                f.y = half + 20f;
+                f.x = Range(-CanvasMetrics.REF_W * 0.5f, CanvasMetrics.REF_W * 0.5f);
+            }
+            float sway = f.swayAmp * Mathf.Sin((tm / f.swaySec + f.swayPhase) * Mathf.PI * 2f);
+            f.rt.anchoredPosition = new Vector2(f.x + sway, f.y);
+            _flakes[i] = f;
         }
     }
 
     // ═══════════════════════════════════════════════════════════
-    // 스프라이트 굽기
+    // 도우미
     // ═══════════════════════════════════════════════════════════
 
-    // 빙산 실루엣. 좌표는 0~1 비율이라 크기를 바꿔도 형태가 유지된다.
-    // (x, y) 에서 y 는 위가 0 이다 — 텍스처를 채울 때 뒤집는다.
-    static readonly Vector2[] BIG_BERG = {
-        new Vector2(0.34f, 0.00f), new Vector2(0.10f, 0.36f), new Vector2(0.00f, 1.00f),
-        new Vector2(1.00f, 1.00f), new Vector2(1.00f, 0.52f), new Vector2(0.74f, 0.52f),
-        new Vector2(0.72f, 0.24f),
-    };
-    // 오른쪽으로 향한 면. 같은 얼음이지만 빛을 덜 받아 푸르게 가라앉는다.
-    static readonly Vector2[] BIG_BERG_SHADE = {
-        new Vector2(0.34f, 0.00f), new Vector2(0.72f, 0.24f), new Vector2(0.74f, 0.52f),
-        new Vector2(1.00f, 0.52f), new Vector2(1.00f, 1.00f), new Vector2(0.66f, 1.00f),
-    };
-    static readonly Vector2[] SML_BERG = {
-        new Vector2(0.22f, 0.10f), new Vector2(0.95f, 0.04f), new Vector2(1.00f, 1.00f),
-        new Vector2(0.00f, 1.00f),
-    };
-    static readonly Vector2[] SML_BERG_SHADE = {
-        new Vector2(0.22f, 0.10f), new Vector2(0.34f, 0.10f), new Vector2(0.16f, 1.00f),
-        new Vector2(0.00f, 1.00f),
-    };
+    float Range(float a, float b) => a + (float)_rnd.NextDouble() * (b - a);
 
-    static Sprite MakeBergSprite(int w, int h, Vector2[] body, Vector2[] shade)
+    static void SetAlpha(Image img, float a)
     {
-        var px = NewClear(w, h);
-        FillPoly(px, w, h, body,  ICE_LIGHT);
-        FillPoly(px, w, h, shade, ICE_SHADE);
-        return Bake(px, w, h);
+        var c = img.color; c.a = a; img.color = c;
     }
 
-    // 구름은 원 여러 개를 겹쳐 만든다. 원본도 같은 방식으로 그려져 있다.
-    // 밝은 덩어리를 먼저 깔고 그 위에 조금 어두운 덩어리를 얹으면 부피가 생긴다.
-    static Sprite MakeCloudSprite(int w, int h, Color32 main, Color32 sub)
+    static RectTransform NewRect(string name, Transform parent)
     {
-        var px = NewClear(w, h);
-
-        // 아래를 평평하게 잘라 주는 받침. 원만 겹치면 밑이 울퉁불퉁해진다.
-        FillRect(px, w, h, 0.10f, 0.62f, 0.92f, 0.98f, main);
-
-        FillCircle(px, w, h, 0.28f, 0.46f, 0.26f, main);
-        FillCircle(px, w, h, 0.46f, 0.30f, 0.22f, main);
-        FillCircle(px, w, h, 0.14f, 0.66f, 0.17f, main);
-
-        FillCircle(px, w, h, 0.68f, 0.55f, 0.24f, sub);
-        FillCircle(px, w, h, 0.86f, 0.70f, 0.16f, sub);
-        FillRect(px, w, h, 0.55f, 0.70f, 0.94f, 0.98f, sub);
-
-        return Bake(px, w, h);
+        var go = new GameObject(name);
+        go.transform.SetParent(parent, false);
+        return go.AddComponent<RectTransform>();
     }
 
-    /// <summary>
-    /// 세로로 짙어지는 막. 가로로는 변하지 않으므로 1px 폭이면 되고, 늘려서 쓴다.
-    /// 색과 세기가 같이 움직인다 — 위는 옅은 검정, 아래는 짙은 남색.
-    /// Texture2D 는 y=0 이 아래쪽이라 짙은 쪽이 낮은 y 다.
-    /// </summary>
+    /// <summary>스프라이트 없는 Image 는 단색 사각형이 된다. 건물은 거의 전부 이걸로 그린다.</summary>
+    static Image AddSolid(GameObject go, Color32 col)
+    {
+        var img = go.AddComponent<Image>();
+        img.color         = col;
+        img.raycastTarget = false;
+        return img;
+    }
+
+    void AddFullScreen(string name, Sprite spr)
+    {
+        var rt = NewRect(name, transform);
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = rt.offsetMax = Vector2.zero;
+        var img = AddSolid(rt.gameObject, Color.white);   // 색과 세기는 스프라이트가 들고 있다
+        img.sprite = spr;
+    }
+
+    // ── 굽기 ────────────────────────────────────────────────────
+    // 세로 그라데이션들은 가로로 변하지 않으므로 1px 폭이면 되고, 늘려서 쓴다.
+    // Texture2D 는 y=0 이 아래쪽이다.
+
+    /// <summary>창문 한 칸. 가운데 창만 칠하고 나머지는 비워 몸통 색이 비치게 한다.</summary>
+    static Texture2D MakeWindowTile(Layer L)
+    {
+        int w = L.cellW, h = L.cellH;
+        var px = new Color32[w * h];
+        int x0 = (w - L.winW) / 2, y0 = (h - L.winH) / 2;
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                bool inWin = x >= x0 && x < x0 + L.winW && y >= y0 && y < y0 + L.winH;
+                px[y * w + x] = inWin ? L.window : new Color32(0, 0, 0, 0);
+            }
+        var tex = new Texture2D(w, h, TextureFormat.ARGB32, false);
+        tex.filterMode = FilterMode.Bilinear;
+        tex.wrapMode   = TextureWrapMode.Repeat;   // uvRect 로 칸 수만큼 되풀이한다
+        tex.SetPixels32(px);
+        tex.Apply();
+        return tex;
+    }
+
+    static Sprite MakeSkySprite(int h)
+    {
+        float half = CanvasMetrics.HalfHeight;
+        return MakeVertical(h, up =>
+        {
+            float cy = -half + CanvasMetrics.Height * up;
+            float t  = Smooth(Mathf.Clamp01((half - cy) / (half - SKY_HORIZON_Y)));
+            return Color32.Lerp(SKY, SKY_HORIZON, t);
+        });
+    }
+
+    static Sprite MakeFogSprite(int h)
+    {
+        float half = CanvasMetrics.HalfHeight;
+        return MakeVertical(h, up =>
+        {
+            float cy = -half + CanvasMetrics.Height * up;
+            float t  = Mathf.Clamp01((FOG_START_Y - cy) / (FOG_START_Y + half));
+            var c = SKY_HORIZON;
+            c.a = (byte)(FOG_ALPHA * t * 255f);
+            return c;
+        });
+    }
+
     static Sprite MakeDimSprite(int h)
+    {
+        return MakeVertical(h, up =>
+        {
+            float t = Smooth(Mathf.Clamp01(1f - up / DIM_RAMP_H));
+            var c = DIM_COL;
+            c.a = (byte)(DIM_BOTTOM_ALPHA * t * 255f);
+            return c;
+        });
+    }
+
+    static float Smooth(float t) => t * t * (3f - 2f * t);   // 선형이면 중간에 띠가 보인다
+
+    /// <summary>up 은 0 = 화면 아래, 1 = 위.</summary>
+    static Sprite MakeVertical(int h, System.Func<float, Color32> colorAt)
     {
         var tex = new Texture2D(1, h, TextureFormat.ARGB32, false);
         tex.filterMode = FilterMode.Bilinear;
         tex.wrapMode   = TextureWrapMode.Clamp;   // 없으면 위아래 끝이 반대쪽 색을 물어 온다
-
         var px = new Color32[h];
-        for (int y = 0; y < h; y++)
-        {
-            float up = y / (h - 1f);                        // 0 = 화면 아래, 1 = 위
-            float t  = Mathf.Clamp01(1f - up / DIM_RAMP_H); // 램프 구간에서만 1 → 0
-            t = t * t * (3f - 2f * t);                      // 선형이면 램프 끝에 띠가 보인다
-            float   a   = Mathf.Lerp(DIM_ALPHA, DIM_BOTTOM_ALPHA, t);
-            Color32 col = Color32.Lerp(DIM_TOP_COL, DIM_BOTTOM_COL, t);
-            px[y] = new Color32(col.r, col.g, col.b, (byte)(a * 255f));
-        }
-
+        for (int y = 0; y < h; y++) px[y] = colorAt(y / (h - 1f));
         tex.SetPixels32(px);
         tex.Apply();
         return Sprite.Create(tex, new Rect(0, 0, 1, h), new Vector2(0.5f, 0.5f));
     }
 
-    static Sprite MakeBarSprite(int w, int h, Color32 col)
+    /// <summary>흰 원. soft 면 가운데서 바깥으로 옅어지고, 아니면 가장자리만 부드럽다.</summary>
+    static Sprite MakeDotSprite(int size, bool soft)
     {
-        var px = NewClear(w, h);
-        float r = h * 0.5f;
-        for (int y = 0; y < h; y++)
-            for (int x = 0; x < w; x++)
+        var px = new Color32[size * size];
+        float r = size * 0.5f;
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
             {
-                float cx = Mathf.Clamp(x + 0.5f, r, w - r);
-                float dx = x + 0.5f - cx, dy = y + 0.5f - r;
-                if (dx * dx + dy * dy <= r * r) px[y * w + x] = col;
+                float dx = x + 0.5f - r, dy = y + 0.5f - r;
+                float d  = Mathf.Sqrt(dx * dx + dy * dy) / r;   // 0 = 가운데, 1 = 테두리
+                float a  = soft ? Smooth(Mathf.Clamp01(1f - d))
+                                : Mathf.Clamp01((1f - d) * r);  // 테두리 1px 만 번진다
+                px[y * size + x] = new Color32(255, 255, 255, (byte)(a * 255f));
             }
-        return Bake(px, w, h);
-    }
-
-    // ── 픽셀 도우미 ─────────────────────────────────────────────
-    static Color32[] NewClear(int w, int h)
-    {
-        var px = new Color32[w * h];
-        for (int i = 0; i < px.Length; i++) px[i] = new Color32(0, 0, 0, 0);
-        return px;
-    }
-
-    static Sprite Bake(Color32[] px, int w, int h)
-    {
-        var tex = new Texture2D(w, h, TextureFormat.ARGB32, false);
+        var tex = new Texture2D(size, size, TextureFormat.ARGB32, false);
         tex.filterMode = FilterMode.Bilinear;
         tex.wrapMode   = TextureWrapMode.Clamp;
         tex.SetPixels32(px);
         tex.Apply();
-        return Sprite.Create(tex, new Rect(0, 0, w, h), new Vector2(0.5f, 0.5f));
-    }
-
-    /// <summary>비율 좌표 다각형을 채운다. 홀짝 규칙(ray casting).</summary>
-    static void FillPoly(Color32[] px, int w, int h, Vector2[] poly, Color32 col)
-    {
-        for (int y = 0; y < h; y++)
-        {
-            // 텍스처는 아래가 0, 다각형 좌표는 위가 0 이라 뒤집는다.
-            float fy = 1f - (y + 0.5f) / h;
-            for (int x = 0; x < w; x++)
-            {
-                float fx = (x + 0.5f) / w;
-                bool inside = false;
-                for (int i = 0, j = poly.Length - 1; i < poly.Length; j = i++)
-                {
-                    if ((poly[i].y > fy) != (poly[j].y > fy) &&
-                        fx < (poly[j].x - poly[i].x) * (fy - poly[i].y)
-                             / (poly[j].y - poly[i].y) + poly[i].x)
-                        inside = !inside;
-                }
-                if (inside) px[y * w + x] = col;
-            }
-        }
-    }
-
-    static void FillCircle(Color32[] px, int w, int h, float cx, float cy, float r, Color32 col)
-    {
-        float pcx = cx * w, pcy = (1f - cy) * h, pr = r * w;
-        int x0 = Mathf.Max(0, (int)(pcx - pr)), x1 = Mathf.Min(w - 1, (int)(pcx + pr));
-        int y0 = Mathf.Max(0, (int)(pcy - pr)), y1 = Mathf.Min(h - 1, (int)(pcy + pr));
-        for (int y = y0; y <= y1; y++)
-            for (int x = x0; x <= x1; x++)
-            {
-                float dx = x + 0.5f - pcx, dy = y + 0.5f - pcy;
-                if (dx * dx + dy * dy <= pr * pr) px[y * w + x] = col;
-            }
-    }
-
-    static void FillRect(Color32[] px, int w, int h, float x0, float y0, float x1, float y1, Color32 col)
-    {
-        int px0 = Mathf.Max(0, (int)(x0 * w)),        px1 = Mathf.Min(w - 1, (int)(x1 * w));
-        int py0 = Mathf.Max(0, (int)((1f - y1) * h)), py1 = Mathf.Min(h - 1, (int)((1f - y0) * h));
-        for (int y = py0; y <= py1; y++)
-            for (int x = px0; x <= px1; x++)
-                px[y * w + x] = col;
+        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
     }
 }
