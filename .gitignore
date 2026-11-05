@@ -119,3 +119,6 @@ InitTestScene*.unity*
 
 # 빌드에서 뺀 미사용 음원 보관함. Assets/ 밖이라 Unity 가 보지 않는다.
 _unused_audio/
+
+# 에디터에서 저장한 공유 카드 (SharePanel → ImageSaver)
+/ShareCards/
