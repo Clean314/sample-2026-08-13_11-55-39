@@ -429,13 +429,15 @@ public partial class InGameUI
 
     // 무지개 블럭이 살아있는 동안 심장박동처럼 맥동시킨다.
     // RefreshGrid는 드래그 중 매 프레임 불려 스케일을 덮어쓸 수 있어 여기서만 건드린다.
-    void UpdateRainbowBlocks(float now)
+    void UpdateRainbowBlocks(float now, float beatDecay)
     {
         if (_gm == null || _blockOverlays[0, 0] == null) return;
 
-        // 크기와 밝기를 같이 흔들어 "눌러 달라"는 신호를 준다
+        // "눌러 달라"는 신호. 예전엔 제 박자(사인파)로 커졌다 작아지면서 판 전체의 박자 맥동까지
+        // 같이 받아 두 가지로 튀었다. 이제 크기는 박자에 맞춰 한 번만 튄다 — 다른 블록보다 크게,
+        // 위아래만이 아니라 통째로. 밝기 반짝임은 그대로 둔다(크기가 아니라 눈에 걸리는 신호다).
+        float pulse = 1f + 0.16f * beatDecay * beatDecay;
         float wave  = Mathf.Sin(now * 7f);
-        float pulse = 1f + 0.16f * wave;
         var   tint  = Color.Lerp(new Color(0.80f, 0.80f, 0.80f), Color.white, wave * 0.5f + 0.5f);
 
         for (int r = 0; r < GameManager.SIZE; r++)
@@ -449,9 +451,10 @@ public partial class InGameUI
                     img.rectTransform.localScale = Vector3.one * pulse;
                     img.color = tint;
                 }
-                else if (img.rectTransform.localScale != Vector3.one)
+                else if (_gm.Board[r, c] == 0 && img.rectTransform.localScale != Vector3.one)
                 {
-                    // 무지개 블럭이 사라진 칸의 스케일을 되돌린다 (색은 RefreshGrid가 관리)
+                    // 무지개 블럭이 사라진 칸의 스케일을 되돌린다 (색은 RefreshGrid가 관리).
+                    // 블록이 있는 칸은 건드리지 않는다 — 박자 맥동(UpdateDiscoVisuals)이 맡고 있다.
                     img.rectTransform.localScale = Vector3.one;
                 }
             }

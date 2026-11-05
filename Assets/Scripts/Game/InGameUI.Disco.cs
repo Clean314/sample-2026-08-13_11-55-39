@@ -219,7 +219,8 @@ public partial class InGameUI
 
         // 무지개 블럭은 배경 연출 구간과 무관하게 항상 맥동해야 하므로
         // 아래 레이어 on/off 및 early return보다 먼저 처리한다.
-        UpdateRainbowBlocks(Time.time);
+        UpdateRainbowBlocks(Time.time, beatDecay);
+        if (_beatTracker != null) UpdateRainbowBeacons(_beatTracker.PlaybackSec);
 
         // 48.5~49초 페이드아웃 → 49~100.1초 완전 블랙(이 동안 터널/흰색배경이 화면을 채움)
         // → 100.1~100.6초 페이드인으로 셀로 복귀.
@@ -300,7 +301,9 @@ public partial class InGameUI
             var pulseScale = new Vector3(1f, pulseY, 1f);
             for (int r = 0; r < GameManager.SIZE; r++)
                 for (int c = 0; c < GameManager.SIZE; c++)
-                    if (_blockOverlays[r, c] != null && _gm.Board[r, c] != 0)
+                    // 무지개 블럭은 빼고 — 제 맥동(UpdateRainbowBlocks)이 있어서 둘이 겹치면 두 번 튄다
+                    if (_blockOverlays[r, c] != null && _gm.Board[r, c] != 0
+                        && _gm.Board[r, c] != GameManager.RAINBOW_BLOCK_VAL)
                         _blockOverlays[r, c].rectTransform.localScale = pulseScale;
         }
 
