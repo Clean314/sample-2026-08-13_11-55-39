@@ -63,7 +63,7 @@
 <main>
 
 <h1>MATBLAST 개인정보처리방침</h1>
-<p class="meta">시행일: 2026년 9월 3일 · 최종 수정일: 2026년 9월 3일</p>
+<p class="meta">시행일: 2026년 9월 3일 · 최종 수정일: 2026년 11월 6일</p>
 
 <p>이 문서는 Android 애플리케이션 <strong>MATBLAST</strong>(패키지 이름 <code>com.pipie.matblast</code>, 이하 &ldquo;본 앱&rdquo;)이
 이용자의 정보를 어떻게 다루는지 설명합니다. 본 앱은 <strong>Pipie</strong>(이하 &ldquo;개발자&rdquo;)가 개발·운영합니다.</p>
@@ -85,9 +85,23 @@
   <li>모드별 최고 점수</li>
   <li>진행 중이던 게임판의 상태 (블록 배치, 현재 점수, 콤보 등)</li>
   <li>배경 음악 음소거 설정</li>
-  <li>인앱 상품 구매 여부</li>
+  <li>인앱 상품 구매 여부의 사본 &mdash; 인터넷에 연결되지 않은 때에도 이미 구매한 기능을 쓸 수 있도록 기기에 기억해 둡니다.
+      원래의 구매 기록은 이용자의 Google Play 계정에 있으며, 본 앱은 실행할 때 Google Play에서 구매 내역을 다시 확인합니다.
+      따라서 같은 Google 계정을 쓰면 앱을 다시 설치하거나 기기를 바꿔도 구매가 자동으로 복원되며, 다시 구매할 필요가 없습니다.</li>
 </ul>
-<p>이 정보는 본 앱을 기기에서 삭제하면 함께 삭제됩니다.</p>
+<p>이 정보는 본 앱을 기기에서 삭제하면 함께 삭제됩니다(구매 기록은 위와 같이 Google Play 계정에 남습니다).</p>
+
+<h3>최고 점수 공유 카드</h3>
+<p>메인 화면의 공유 버튼으로 모드별 최고 점수 카드를 이미지로 만들어 기기의 사진 앱(<code>Pictures/MATBLAST</code>)에
+저장할 수 있습니다. 이미지는 이용자가 저장 버튼을 누를 때만 만들어지며, 기기에만 저장되고 개발자에게 전송되지 않습니다.
+저장한 이미지를 다른 곳에 공유할지는 이용자가 정합니다.</p>
+<ul>
+  <li><strong>카드에 들어가는 정보</strong> &mdash; 모드별 최고 점수, 그리고 Play 게임즈에 로그인한 경우 Play 게임즈 표시 이름.
+      표시 이름은 카드를 그리는 동안 Play 게임즈에서 읽어 올 뿐 따로 저장하거나 전송하지 않습니다.</li>
+  <li><strong>저장 권한</strong> &mdash; Android 10 이상에서는 권한 없이 저장합니다. Android 8~9에서만 처음 저장할 때
+      사진·파일 저장 권한(<code>WRITE_EXTERNAL_STORAGE</code>)을 요청하며, 이 권한은 카드 이미지를 저장하는 데에만 씁니다.
+      거부해도 저장 외의 모든 기능은 그대로 이용할 수 있습니다.</li>
+</ul>
 
 <h2>3. 앱에 포함된 제3자 서비스</h2>
 <p>본 앱은 아래 서비스를 사용합니다. 각 서비스가 처리하는 정보는 해당 사업자의 개인정보처리방침을 따릅니다.</p>
@@ -151,6 +165,7 @@
       <em>설정 &rarr; 계정 및 개인정보 보호 &rarr; 게임 데이터 삭제</em>에서 본 게임의 데이터를 삭제할 수 있습니다.</li>
   <li><strong>광고 관련 정보</strong> &mdash; 위 4항의 방법으로 광고 ID를 재설정하거나 삭제할 수 있습니다.</li>
   <li><strong>구매 내역</strong> &mdash; Google Play 계정에 보관되며 Google의 정책에 따릅니다.</li>
+  <li><strong>저장한 공유 카드 이미지</strong> &mdash; 사진 앱에 있는 일반 이미지라 앱을 삭제해도 남습니다. 사진 앱에서 직접 삭제할 수 있습니다.</li>
 </ul>
 
 <h2>7. 이용자의 권리</h2>
@@ -169,7 +184,7 @@
 <hr class="lang-sep">
 
 <h1 style="margin-top:3rem">MATBLAST Privacy Policy</h1>
-<p class="meta">Effective: 3 September 2026 · Last updated: 3 September 2026</p>
+<p class="meta">Effective: 3 September 2026 · Last updated: 6 November 2026</p>
 
 <p>This policy explains how the Android application <strong>MATBLAST</strong>
 (package <code>com.pipie.matblast</code>, the &ldquo;App&rdquo;) handles your information. The App is developed and operated by <strong>Pipie</strong> (the &ldquo;developer&rdquo;).</p>
@@ -191,9 +206,24 @@ and contains no custom analytics or user-tracking code.</p>
   <li>Your high score for each game mode</li>
   <li>The state of a game in progress (block layout, current score, combo)</li>
   <li>Your background-music mute setting</li>
-  <li>Whether you have purchased an in-app product</li>
+  <li>A cached copy of whether you have purchased an in-app product &mdash; kept on the device so purchased features keep working
+      without an internet connection. The original purchase record is held by your Google Play account, and the App checks your
+      purchases with Google Play each time it starts. If you use the same Google account, your purchases are restored automatically
+      after reinstalling the App or moving to a new device; you never need to buy them again.</li>
 </ul>
-<p>This data is removed when you uninstall the App.</p>
+<p>This data is removed when you uninstall the App (your purchase record stays with your Google Play account, as described above).</p>
+
+<h3>Best-score share card</h3>
+<p>The share button on the main menu lets you save a best-score card for each mode as an image in your device's photo library
+(<code>Pictures/MATBLAST</code>). The image is created only when you tap the save button, is stored only on your device, and is not
+sent to us. Whether you share it anywhere else is up to you.</p>
+<ul>
+  <li><strong>What the card shows</strong> &mdash; your best score for the mode and, if you are signed in to Play Games, your Play Games
+      display name. The display name is read from Play Games only while drawing the card; the App does not store or transmit it.</li>
+  <li><strong>Storage permission</strong> &mdash; on Android 10 and later the image is saved without any permission. Only on Android 8&ndash;9
+      does the App ask for the storage permission (<code>WRITE_EXTERNAL_STORAGE</code>) the first time you save, and it uses that
+      permission solely to save the card image. If you decline, every feature other than saving remains available.</li>
+</ul>
 
 <h2>3. Third-party services included in the App</h2>
 <div class="tablewrap">
@@ -256,6 +286,8 @@ address below and we will look into it.</p>
       <em>Settings &rarr; Account &amp; privacy &rarr; Delete Play Games account data</em>.</li>
   <li><strong>Advertising data</strong> &mdash; reset or delete your advertising ID as described in section 4.</li>
   <li><strong>Purchase history</strong> &mdash; retained by your Google Play account under Google's policies.</li>
+  <li><strong>Saved share-card images</strong> &mdash; ordinary images in your photo library, so they remain after uninstalling the App.
+      You can delete them in your photo app.</li>
 </ul>
 
 <h2>7. Your rights</h2>
