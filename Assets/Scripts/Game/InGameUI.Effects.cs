@@ -39,6 +39,7 @@ public partial class InGameUI
         _comboPopupValue = combo;
 
         var rt              = go.AddComponent<RectTransform>();
+        UIEffects.SubCanvas(go);
         rt.anchorMin        = rt.anchorMax = new Vector2(0.5f, 0.5f);
         rt.pivot            = new Vector2(0.5f, 0.5f);
         rt.sizeDelta        = new Vector2(900, 220);
@@ -149,6 +150,7 @@ public partial class InGameUI
         var fxRoot = new GameObject("RainbowBurstFX");
         fxRoot.transform.SetParent(_canvas.transform, false);
         var rootRt       = fxRoot.AddComponent<RectTransform>();
+        UIEffects.SubCanvas(fxRoot);
         rootRt.anchorMin = Vector2.zero;
         rootRt.anchorMax = Vector2.one;
         rootRt.offsetMin = rootRt.offsetMax = Vector2.zero;
@@ -582,6 +584,7 @@ public partial class InGameUI
         var tempRoot = new GameObject("ToggleClearFX");
         tempRoot.transform.SetParent(_gridRt, false);
         var tempRootRt        = tempRoot.AddComponent<RectTransform>();
+        UIEffects.SubCanvas(tempRoot);
         tempRootRt.anchorMin  = Vector2.zero;
         tempRootRt.anchorMax  = Vector2.one;
         tempRootRt.offsetMin  = tempRootRt.offsetMax = Vector2.zero;

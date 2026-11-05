@@ -248,6 +248,9 @@ public class DrivingBackground : MonoBehaviour
     {
         _root = gameObject.AddComponent<RectTransform>();
         Stretch(_root);
+        // 건물·도로·자동차가 매 프레임 움직인다. 판·점수와 따로 묶는다(UIEffects.SubCanvas).
+        // RectTransform 을 단 뒤에 붙여야 한다 — 먼저 붙으면 위의 AddComponent 가 null 을 돌려준다.
+        UIEffects.SubCanvas(gameObject);
         // 최종 sibling 순서는 spawn 쪽(InGameUI)에서 지정한다.
 
         _canvasGroup                = gameObject.AddComponent<CanvasGroup>();
@@ -581,7 +584,8 @@ public class DrivingBackground : MonoBehaviour
         // (CityLightBackground와 같은 규칙 — 얼어붙은 채 화면에 남지 않게)
         if (!_preview && (t < APPEAR_START || t >= DISAPPEAR_AT))
         {
-            Destroy(gameObject);
+            // 지우지 않고 끈다. InGameUI 가 게임 시작 때 한 번 만들어 두고 구간마다 다시 켠다.
+            gameObject.SetActive(false);
             return;
         }
 

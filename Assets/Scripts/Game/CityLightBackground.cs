@@ -238,6 +238,11 @@ public class CityLightBackground : MonoBehaviour
         root.offsetMin = root.offsetMax = Vector2.zero;
         // 최종 sibling 순서는 spawn 쪽(InGameUI)에서 _bgImage 위로 지정한다.
 
+        // 네온·피뢰침·서치라이트가 매 프레임 바뀐다. 판·점수와 따로 묶는다(UIEffects.SubCanvas).
+        // RectTransform 을 단 뒤에 붙여야 한다 — 캔버스가 먼저 붙으면 RectTransform 이 자동으로 생겨
+        // 위의 AddComponent<RectTransform>() 이 null 을 돌려준다.
+        UIEffects.SubCanvas(gameObject);
+
         _canvasGroup                = gameObject.AddComponent<CanvasGroup>();
         _canvasGroup.alpha          = 0f;
         _canvasGroup.interactable   = false;
@@ -506,8 +511,9 @@ public class CityLightBackground : MonoBehaviour
         // 파괴되면 InGameUI가 _bgImage/그리드 배경을 복원하고, 다시 앞으로 시크하면 새로 스폰된다.
         if (!_preview && (t < APPEAR_START || t >= FADE_OUT_END))
         {
+            // 지우지 않고 끈다. InGameUI 가 게임 시작 때 한 번 만들어 두고 구간마다 다시 켠다.
             _phase = Phase.Done;
-            Destroy(gameObject);
+            gameObject.SetActive(false);
             return;
         }
 

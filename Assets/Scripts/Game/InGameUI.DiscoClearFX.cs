@@ -33,7 +33,14 @@ public partial class InGameUI
 
     Sprite _dcfxCapsule;
 
+    struct DcfxSpark { public Image img; public RectTransform rt; public Vector2 center, dir; public float size; }
+    struct DcfxPop   { public Image img; public RectTransform rt; }
+
     /// <summary>디스코 일반 줄 클리어. FlashAndFade 자리에 들어간다.</summary>
+    ///
+    /// 두 줄이면 블록 16개 + 작대기 128개다. 예전엔 하나마다 오브젝트를 새로 만들고 코루틴을 따로
+    /// 돌렸다가 지웠다. 지금은 오브젝트를 풀에서 빌려 쓰고(TakeFx/ReturnFx, InGameUI.ClearFX.cs)
+    /// 움직임은 코루틴 하나가 한꺼번에 돌린다.
     IEnumerator DiscoLineClearFX(HashSet<(int r, int c)> cells)
     {
         if (_audioSource != null && _audioSource.clip != null)
@@ -47,10 +54,14 @@ public partial class InGameUI
         var rootGo = new GameObject(DCFX_ROOT);
         rootGo.transform.SetParent(_canvas.transform, false);
         var root = rootGo.AddComponent<RectTransform>();
+        UIEffects.SubCanvas(rootGo);   // 작대기가 매 프레임 움직인다 — 판과 따로 묶는다
         root.anchorMin = root.anchorMax = new Vector2(0.5f, 0.5f);
         root.sizeDelta = Vector2.zero;
         var blocks = NewLayer("Blocks", root);
-        var sparks = NewLayer("Sparks", root);
+        var sparkLayer = NewLayer("Sparks", root);
+
+        var pops   = new List<DcfxPop>(cells.Count);
+        var sparks = new List<DcfxSpark>(cells.Count * DCFX_SPARKS);
 
         foreach (var (r, c) in cells)
         {
@@ -60,7 +71,13 @@ public partial class InGameUI
             if (ov == null || ov.sprite == null || ov.color.a <= 0f) continue;
 
             Vector3 pos = ov.rectTransform.position;
-            StartCoroutine(DiscoBlockPop(blocks, ov.sprite, pos));
+
+            var pop = TakeFx(blocks);
+            pop.sprite = ov.sprite;
+            pop.color  = Color.white;
+            pop.rectTransform.sizeDelta = new Vector2(120f, 120f);   // 블록 스프라이트 크기 그대로
+            pop.rectTransform.position  = pos;
+            pops.Add(new DcfxPop { img = pop, rt = pop.rectTransform });
 
             // 한 칸 = 한 색. 대각선으로 색이 이어져 판 위에 무지개가 깔린다.
             Color col     = Color.Lerp(DISCO_COLORS[(r + c) % DISCO_COLORS.Length], Color.white, 0.15f);
@@ -68,15 +85,27 @@ public partial class InGameUI
             for (int i = 0; i < DCFX_SPARKS; i++)
             {
                 float ang = baseAng + i * (360f / DCFX_SPARKS) + Random.Range(-9f, 9f);
-                StartCoroutine(DiscoSpark(sparks, pos, ang, col, Random.Range(0.85f, 1.15f)));
+                var img = TakeFx(sparkLayer);
+                img.sprite = _dcfxCapsule;
+                img.type   = Image.Type.Sliced;   // 늘려도 양 끝 반원이 유지된다
+                img.color  = col;
+                var rt = img.rectTransform;
+                rt.position      = pos;
+                rt.localRotation = Quaternion.Euler(0f, 0f, ang);   // 가로로 누운 작대기를 바깥 방향으로
+                sparks.Add(new DcfxSpark
+                {
+                    img = img, rt = rt, center = rt.anchoredPosition,
+                    dir  = new Vector2(Mathf.Cos(ang * Mathf.Deg2Rad), Mathf.Sin(ang * Mathf.Deg2Rad)),
+                    size = Random.Range(0.85f, 1.15f),
+                });
             }
 
             // 원래 블록은 바로 숨긴다. 같은 자리에 복사본이 떠 있으니 끊김 없이 이어진다.
             ov.color = Color.clear;
         }
 
+        StartCoroutine(AnimateDiscoFX(rootGo, pops, sparks));
         yield return new WaitForSeconds(DCFX_HOLD);
-        StartCoroutine(DestroyLater(rootGo, Mathf.Max(DCFX_SPARK_SEC, DCFX_BLOCK_SEC)));
     }
 
     static RectTransform NewLayer(string name, Transform parent)
@@ -89,70 +118,46 @@ public partial class InGameUI
         return rt;
     }
 
-    IEnumerator DiscoBlockPop(Transform parent, Sprite spr, Vector3 worldPos)
+    IEnumerator AnimateDiscoFX(GameObject rootGo, List<DcfxPop> pops, List<DcfxSpark> sparks)
     {
-        var go = new GameObject("Pop");
-        go.transform.SetParent(parent, false);
-        var img = go.AddComponent<Image>();
-        img.sprite        = spr;
-        img.raycastTarget = false;
-        var rt = img.rectTransform;
-        rt.sizeDelta = new Vector2(120f, 120f);   // 블록 스프라이트 크기 그대로
-        rt.position  = worldPos;
-
+        float total = Mathf.Max(DCFX_SPARK_SEC, DCFX_BLOCK_SEC);
         float t = 0f;
-        while (t < DCFX_BLOCK_SEC)
+        while (t < total)
         {
-            if (rt == null) yield break;
+            if (rootGo == null) yield break;   // 게임오버 정리(ClearTransientEffects)가 통째로 치웠다
             t += Time.deltaTime;
-            float k = Mathf.Clamp01(t / DCFX_BLOCK_SEC);
-            float e = 1f - (1f - k) * (1f - k);                  // 빨리 커지다 멈춘다 — 폭죽과 같은 결
-            rt.localScale = Vector3.one * Mathf.Lerp(1f, DCFX_BLOCK_SCALE, e);
-            img.color     = new Color(1f, 1f, 1f, 1f - k);
-            yield return null;
-        }
-        if (go != null) Destroy(go);
-    }
 
-    // 방사형 작대기 하나. 안쪽 끝이 바깥 끝을 따라잡으며 짧아진다. size: 길이·거리 흔들기 배율.
-    IEnumerator DiscoSpark(Transform parent, Vector3 worldPos, float angDeg, Color col, float size)
-    {
-        var go = new GameObject("Spark");
-        go.transform.SetParent(parent, false);
-        var img = go.AddComponent<Image>();
-        img.sprite        = _dcfxCapsule;
-        img.type          = Image.Type.Sliced;   // 늘려도 양 끝 반원이 유지된다
-        img.color         = col;
-        img.raycastTarget = false;
-        var rt = img.rectTransform;
-        rt.position      = worldPos;
-        rt.localRotation = Quaternion.Euler(0f, 0f, angDeg);   // 가로로 누운 작대기를 바깥 방향으로
-        Vector2 center = rt.anchoredPosition;
-        Vector2 dir    = new Vector2(Mathf.Cos(angDeg * Mathf.Deg2Rad), Mathf.Sin(angDeg * Mathf.Deg2Rad));
+            // 블록: 바깥으로 살짝 커지며 옅어진다 — 폭죽과 같은 결
+            float kb = Mathf.Clamp01(t / DCFX_BLOCK_SEC);
+            float eb = 1f - (1f - kb) * (1f - kb);
+            var popScale = Vector3.one * Mathf.Lerp(1f, DCFX_BLOCK_SCALE, eb);
+            var popCol   = new Color(1f, 1f, 1f, 1f - kb);
+            foreach (var p in pops) { p.rt.localScale = popScale; p.img.color = popCol; }
 
-        float t = 0f;
-        while (t < DCFX_SPARK_SEC)
-        {
-            if (rt == null) yield break;
-            t += Time.deltaTime;
-            float k = Mathf.Clamp01(t / DCFX_SPARK_SEC);
-            // 바깥 끝은 처음에 확 나갔다 느려지고, 안쪽 끝은 조금 늦게 따라와 끝에서 만난다.
+            // 작대기: 바깥 끝은 처음에 확 나갔다 느려지고, 안쪽 끝은 조금 늦게 따라와 끝에서 만난다.
+            float k  = Mathf.Clamp01(t / DCFX_SPARK_SEC);
             float eo = 1f - (1f - k) * (1f - k) * (1f - k);
             float ei = 1f - (1f - k) * (1f - k);
-            float rOut = Mathf.Lerp(DCFX_OUT_FROM, DCFX_END_R, eo) * size;
-            float rIn  = Mathf.Lerp(DCFX_IN_FROM,  DCFX_END_R, ei) * size;
-            float len  = Mathf.Max(rOut - rIn, 0f);
-
-            rt.anchoredPosition = center + dir * ((rIn + rOut) * 0.5f);
-            // 길이가 두께보다 짧아지면 두께도 같이 줄여 동그란 점으로 작아지며 사라지게 한다.
-            float w = Mathf.Min(DCFX_SPARK_W, len);
-            rt.sizeDelta = new Vector2(Mathf.Max(len, w), w);
-            // 9-슬라이스 끝(텍스처 반지름 16)이 화면에서 두께의 절반이 되게 줄인다.
-            // 안 그러면 두께 9 짜리 막대 끝이 폭 16 으로 그려져 납작한 타원이 된다.
-            if (w > 0.01f) img.pixelsPerUnitMultiplier = _dcfxCapsule.rect.height / w;
+            float ppu = _dcfxCapsule.rect.height;
+            foreach (var sp in sparks)
+            {
+                float rOut = Mathf.Lerp(DCFX_OUT_FROM, DCFX_END_R, eo) * sp.size;
+                float rIn  = Mathf.Lerp(DCFX_IN_FROM,  DCFX_END_R, ei) * sp.size;
+                float len  = Mathf.Max(rOut - rIn, 0f);
+                sp.rt.anchoredPosition = sp.center + sp.dir * ((rIn + rOut) * 0.5f);
+                // 길이가 두께보다 짧아지면 두께도 같이 줄여 동그란 점으로 작아지며 사라지게 한다.
+                float w = Mathf.Min(DCFX_SPARK_W, len);
+                sp.rt.sizeDelta = new Vector2(Mathf.Max(len, w), w);
+                // 9-슬라이스 끝(텍스처 반지름 16)이 화면에서 두께의 절반이 되게 줄인다.
+                // 안 그러면 두께 9 짜리 막대 끝이 폭 16 으로 그려져 납작한 타원이 된다.
+                if (w > 0.01f) sp.img.pixelsPerUnitMultiplier = ppu / w;
+            }
             yield return null;
         }
-        if (go != null) Destroy(go);
+
+        foreach (var p in pops)    ReturnFx(p.img);
+        foreach (var sp in sparks) ReturnFx(sp.img);
+        Destroy(rootGo);
     }
 
     // 끝이 반원인 막대. 가운데 1px 을 늘려 쓰도록 양 끝을 9-슬라이스 테두리로 잡는다.

@@ -188,6 +188,9 @@ public class IceBackground : MonoBehaviour
         rt.anchorMax = Vector2.one;
         rt.offsetMin = rt.offsetMax = Vector2.zero;
 
+        // 눈송이 80개와 창문이 매 프레임 바뀐다. 판·점수와 따로 묶는다(UIEffects.SubCanvas).
+        UIEffects.SubCanvas(go);
+
         var bg = go.AddComponent<IceBackground>();
         bg.Build();
         return bg;

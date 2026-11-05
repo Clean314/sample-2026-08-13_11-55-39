@@ -70,7 +70,16 @@ public class SharePanel : MonoBehaviour
     Button        _saveBtn;
     Button[]      _tabs    = new Button[MODE_LOC_KEYS.Length];
     Text[]        _tabText = new Text[MODE_LOC_KEYS.Length];
-    readonly Sprite[] _iconSprites = new Sprite[MODE_ICONS.Length];
+    // 구운 그림은 화면을 닫았다 다시 열어도 그대로 쓴다(앱이 켜져 있는 동안). 매번 굽지 않는다.
+    static readonly Sprite[] s_iconSprites = new Sprite[MODE_ICONS.Length];
+    static Sprite s_bgSprite, s_logoSprite;
+    static readonly System.Collections.Generic.Dictionary<string, Sprite> s_btnSprites =
+        new System.Collections.Generic.Dictionary<string, Sprite>();
+
+    // 모드 배경은 한 번 세운 것을 꺼 두었다가 다시 켠다. 탭·리롤을 누를 때마다 도시·방을 새로
+    // 세우면 그때마다 텍스처를 다시 굽고, 버린 텍스처가 메모리에 남는다.
+    readonly System.Collections.Generic.Dictionary<Bg, GameObject> _scenes =
+        new System.Collections.Generic.Dictionary<Bg, GameObject>();
 
     // 권한 콜백이 메인 스레드가 아닐 수 있어서 결과를 여기 두고 Update 에서 받는다.
     volatile bool _resultReady;
@@ -171,7 +180,8 @@ public class SharePanel : MonoBehaviour
         // 바탕: 메인 메뉴와 같은 위→아래 그라데이션. 모서리는 각지게 둔다 — 화면을 잘라
         // 저장하므로 둥글게 하면 모서리에 뒤 화면이 같이 찍힌다. 대신 안쪽에 둥근 테두리를 긋는다.
         var bg = go.AddComponent<Image>();
-        bg.sprite = UIEffects.VerticalGradient(16, 256, BG_TOP, BG_BOTTOM);
+        bg.sprite = s_bgSprite != null ? s_bgSprite
+                  : (s_bgSprite = UIEffects.VerticalGradient(16, 256, BG_TOP, BG_BOTTOM));
         go.AddComponent<RectMask2D>();   // 모드 배경은 화면 크기로 세우므로 카드 밖을 잘라 낸다
 
         _scene = NewChild("Scene", _card);
@@ -189,14 +199,18 @@ public class SharePanel : MonoBehaviour
         var logoTex = Resources.Load<Texture2D>("Sprites/Logo/logo");
         if (logoTex != null)
         {
-            var px = UIEffects.ReadPixels(logoTex);
-            UIEffects.TintVertical(px, logoTex.width, logoTex.height, Color.white, new Color(0.682f, 0.733f, 0.827f));
             var logo = NewChild("Logo", _card);
             var li = _logo = logo.gameObject.AddComponent<Image>();
             // 메인 메뉴 로고처럼 그림자를 구워 넣는다. 카드 로고는 작아서(원본의 약 0.36배) 살짝만.
             // 그림자 자리만큼 그림이 넓어지므로 표시 상자도 같은 비율만큼 키운다.
-            li.sprite = UIEffects.ToSprite(UIEffects.WithDropShadow(px, logoTex.width, logoTex.height,
-                LOGO_SHADOW_PAD, new Vector2Int(0, -LOGO_SHADOW_DROP), LOGO_SHADOW_BLUR, LOGO_SHADOW_ALPHA, Color.black));
+            if (s_logoSprite == null)
+            {
+                var px = UIEffects.ReadPixels(logoTex);
+                UIEffects.TintVertical(px, logoTex.width, logoTex.height, Color.white, new Color(0.682f, 0.733f, 0.827f));
+                s_logoSprite = UIEffects.ToSprite(UIEffects.WithDropShadow(px, logoTex.width, logoTex.height,
+                    LOGO_SHADOW_PAD, new Vector2Int(0, -LOGO_SHADOW_DROP), LOGO_SHADOW_BLUR, LOGO_SHADOW_ALPHA, Color.black));
+            }
+            li.sprite = s_logoSprite;
             li.preserveAspect = true;
             li.raycastTarget  = false;
             float k = LOGO_H / logoTex.height;   // 표시 배율 (높이 기준)
@@ -238,11 +252,12 @@ public class SharePanel : MonoBehaviour
     // 디스코 장면은 곡 없이 그 구간을 되풀이하는 미리보기로 세운다(SpawnPreview).
     void BuildScene(Bg bg)
     {
-        for (int i = _scene.childCount - 1; i >= 0; i--) Destroy(_scene.GetChild(i).gameObject);
-        if (bg == Bg.Gradient) return;
+        foreach (var kv in _scenes) kv.Value.SetActive(kv.Key == bg);
+        if (bg == Bg.Gradient || _scenes.ContainsKey(bg)) return;
 
         float scale = CARD_W / CanvasMetrics.REF_W;
         var frame = NewChild("SceneFrame", _scene);
+        _scenes[bg] = frame.gameObject;
         frame.sizeDelta        = new Vector2(CanvasMetrics.REF_W, CanvasMetrics.Height);
         frame.localScale       = Vector3.one * scale;
         frame.anchoredPosition = new Vector2(0f, -CARD_H * 0.5f + CanvasMetrics.Height * scale * 0.5f);
@@ -319,12 +334,12 @@ public class SharePanel : MonoBehaviour
 
     Sprite IconSprite(int mode)
     {
-        if (_iconSprites[mode] != null) return _iconSprites[mode];
+        if (s_iconSprites[mode] != null) return s_iconSprites[mode];
         var tex = Resources.Load<Texture2D>(MODE_ICONS[mode]);
         if (tex == null) return null;
         var tx = UIEffects.WithDropShadow(UIEffects.ReadPixels(tex), tex.width, tex.height, ICON_PAD,
                                           new Vector2Int(0, -ICON_DROP), ICON_BLUR, ICON_ALPHA, Color.black);
-        return _iconSprites[mode] = UIEffects.ToSprite(tx);
+        return s_iconSprites[mode] = UIEffects.ToSprite(tx);
     }
 
     void Refresh()
@@ -349,6 +364,14 @@ public class SharePanel : MonoBehaviour
         string name = Leaderboards.Service != null ? Leaderboards.Service.PlayerName : null;
         _nameText.text = name ?? "";
         _status.text   = name == null ? loc.Get("share_name_hint") : "";
+    }
+
+    // 모드 배경(아이스 도시·디스코 장면)이 구운 텍스처는 화면을 닫으면 쓸 데가 없다. 그 배경들이
+    // 스스로 텍스처를 지우지 않으므로, 닫을 때 안 쓰는 것을 한 번 비운다. 메인 메뉴에 오래 머물며
+    // 공유 화면을 여러 번 열어도 메모리가 쌓이지 않는다. 위의 static 그림들은 쓰이는 중이라 남는다.
+    void OnDestroy()
+    {
+        Resources.UnloadUnusedAssets();
     }
 
     IEnumerator CaptureAndSave()
@@ -462,14 +485,18 @@ public class SharePanel : MonoBehaviour
         var rt  = NewChild("IconBtn", transform);
         var img = rt.gameObject.AddComponent<Image>();
         img.preserveAspect = true;
-        var tex = Resources.Load<Texture2D>(path);
-        if (tex != null)
+        if (!s_btnSprites.TryGetValue(path, out var spr) || spr == null)
         {
-            var px = UIEffects.ReadPixels(tex);
-            UIEffects.TintVertical(px, tex.width, tex.height, Color.white, new Color(0.682f, 0.733f, 0.827f));
-            img.sprite = UIEffects.ToSprite(UIEffects.WithDropShadow(px, tex.width, tex.height, ICON_BTN_PAD,
-                                            new Vector2Int(0, -12), 10, 1f, Color.black));
+            var tex = Resources.Load<Texture2D>(path);
+            if (tex != null)
+            {
+                var px = UIEffects.ReadPixels(tex);
+                UIEffects.TintVertical(px, tex.width, tex.height, Color.white, new Color(0.682f, 0.733f, 0.827f));
+                spr = s_btnSprites[path] = UIEffects.ToSprite(UIEffects.WithDropShadow(px, tex.width, tex.height,
+                                            ICON_BTN_PAD, new Vector2Int(0, -12), 10, 1f, Color.black));
+            }
         }
+        img.sprite = spr;
         var btn    = rt.gameObject.AddComponent<Button>();
         var colors = btn.colors;
         colors.highlightedColor = new Color(1f, 1f, 1f, 0.75f);

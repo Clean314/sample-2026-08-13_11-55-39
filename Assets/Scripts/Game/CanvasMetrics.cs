@@ -33,3 +33,20 @@ public static class CanvasMetrics
     /// <summary>화면 위끝의 y. 아래끝은 -HalfHeight 다.</summary>
     public static float HalfHeight => Height * 0.5f;
 }
+
+/// <summary>
+/// 프레임 제한. 정해 두지 않으면 유니티 안드로이드는 30fps 로 돈다 — 박자 맥동·터널·드래그가
+/// 뚝뚝 끊겨 보인다. 60 으로 올린다. 90·120Hz 화면에서 끝까지 올리지 않는 건 배터리와 발열 때문이다.
+/// 씬이 열리기 전에 한 번만 정하면 앱이 끝날 때까지 유지된다.
+/// </summary>
+public static class FrameRate
+{
+    public const int TARGET = 60;   // ── 조정 손잡이 ──
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+    static void Apply()
+    {
+        QualitySettings.vSyncCount  = 0;   // 켜져 있으면 targetFrameRate 가 무시되는 플랫폼이 있다
+        Application.targetFrameRate = TARGET;
+    }
+}

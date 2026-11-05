@@ -216,7 +216,10 @@ public partial class InGameUI : MonoBehaviour
     // 전용 배경(도시/드라이빙)이 화면을 덮고 있는지. 빈 셀을 내곽선으로 그릴지 판단하는 데도 쓴다.
     // 드라이빙 배경은 마지막 페이즈에서 하늘·건물을 감추고 디스코 셀을 드러내므로,
     // 그동안은 덮고 있지 않은 것으로 본다(기본 배경과 그리드 백드롭이 다시 필요하다).
-    bool SceneBackgroundActive => _cityLight != null || (_driving != null && _driving.CoversScreen);
+    bool SceneBackgroundActive => Live(_cityLight) || (Live(_driving) && _driving.CoversScreen);
+
+    // 전용 배경은 미리 만들어 꺼 둔 채로 들고 있다가 구간에 들어오면 켠다. 켜져 있어야 "떠 있다".
+    static bool Live(MonoBehaviour b) => b != null && b.gameObject.activeSelf;
     Image           _whiteFlashOverlay;
 
     DiscoTile[]     _spotImgs;
@@ -551,6 +554,7 @@ public partial class InGameUI : MonoBehaviour
             BuildTunnelLayer();
             BuildWhiteFlashOverlay();
             _beatTracker = new GameObject("BeatTracker").AddComponent<BeatTracker>();
+            PrebuildSceneBackgrounds();
 
             // 모든 레이아웃이 끝난 뒤에 제자리를 기록해야 한다
             CollectShakeTargets();
@@ -1029,6 +1033,9 @@ public partial class InGameUI : MonoBehaviour
         var cellLayerRt  = MakeGridLayer(go.transform, "CellLayer");
         var blockLayerRt = MakeGridLayer(go.transform, "BlockLayer");
         _blockLayerRt    = blockLayerRt;
+        // 블록은 디스코에서 박자마다 64칸이 다 맥동하고, 미리보기·클리어 연출도 여기를 건드린다.
+        // 빈 셀·점수까지 같이 다시 묶지 않도록 따로 뗀다(UIEffects.SubCanvas). 터치는 셀이 받는다.
+        UIEffects.SubCanvas(blockLayerRt.gameObject);
 
         // 8×8 셀
         for (int r = 0; r < 8; r++)
@@ -1362,6 +1369,8 @@ public partial class InGameUI : MonoBehaviour
 
         var containerGo = new GameObject("PiecePreview");
         containerGo.transform.SetParent(parent, false);
+        // 트레이 조각은 디스코 맥동으로 매 프레임, 끄는 동안에도 매 프레임 움직인다. 끌어야 하므로 터치를 켠다.
+        UIEffects.SubCanvas(containerGo, raycast: true);
 
         var hitImg = containerGo.AddComponent<Image>();
         hitImg.color = Color.clear;
@@ -1599,8 +1608,14 @@ public partial class InGameUI : MonoBehaviour
 
         var piece = _gm.CurrentPieces[_dragIdx];
         var shape = PieceData.Shapes[piece.shapeIndex];
+        int  oldRow = _previewRow, oldCol = _previewCol;
+        bool had    = _snapValid;
         GetGridCell(screenPos, shape, out _previewRow, out _previewCol);
         _snapValid = true;
+
+        // 드래그 이벤트는 손가락이 움직이는 동안 거의 매 프레임 온다. 미리보기 칸이 그대로면
+        // 판 64칸을 다시 칠할 이유가 없다 — 예전엔 매번 RefreshGrid 를 돌렸다.
+        if (had && oldRow == _previewRow && oldCol == _previewCol) return;
         UpdateGridPreview();
     }
 

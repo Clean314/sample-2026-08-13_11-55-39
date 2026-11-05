@@ -216,6 +216,27 @@ public static class UIEffects
         return horizontal ? a[row * w + i] : a[i * w + row];
     }
 
+    // ── 하위 캔버스 ──────────────────────────────────────────────
+    /// <summary>
+    /// 이 오브젝트를 별도 하위 캔버스로 만든다.
+    ///
+    /// 유니티 UI 는 캔버스 안의 그림 하나만 움직이거나 색이 바뀌어도 그 캔버스 전체의 그리기
+    /// 묶음을 다시 만든다. 화면 전체가 캔버스 하나면 빗방울 하나가 움직여도 판·점수·버튼까지
+    /// 통째로 다시 묶는다. 매 프레임 바뀌는 층(배경 연출·블록 맥동·이펙트)을 따로 떼어 두면
+    /// 그 층만 다시 묶는다.
+    ///
+    /// 정렬을 따로 주지 않으므로 그리는 순서는 지금처럼 형제 순서를 따른다. 터치를 받는 그림이
+    /// 들어 있는 층은 raycast 를 켜야 한다 — 하위 캔버스의 그림은 그 캔버스의 GraphicRaycaster 만 본다.
+    /// </summary>
+    public static Canvas SubCanvas(GameObject go, bool raycast = false)
+    {
+        var c = go.GetComponent<Canvas>();
+        if (c == null) c = go.AddComponent<Canvas>();
+        if (raycast && go.GetComponent<UnityEngine.UI.GraphicRaycaster>() == null)
+            go.AddComponent<UnityEngine.UI.GraphicRaycaster>();
+        return c;
+    }
+
     // ── 공통 ─────────────────────────────────────────────────────
     public static Sprite ToSprite(Texture2D tex) =>
         Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f),

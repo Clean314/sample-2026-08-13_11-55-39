@@ -118,8 +118,10 @@ public partial class InGameUI
     /// </summary>
     void BuildToggleScene()
     {
-        _roomDark  = MakeRoomSprite(TOGGLE_BG_DARK,  TOGGLE_LINE_DARK);
-        _roomLight = MakeRoomSprite(TOGGLE_BG_LIGHT, TOGGLE_LINE_LIGHT);
+        // 약 41만 픽셀을 한 장씩 계산하는 그림이라 판마다 굽지 않는다. 앱이 켜져 있는 동안
+        // 한 번 구운 것을 계속 쓴다(공유 카드 배경도 같은 것을 쓴다). 화면 비율은 바뀌지 않는다.
+        _roomDark  = ShareRoomSprite(false);
+        _roomLight = ShareRoomSprite(true);
         _cellLight = MakeToggleCellSprite(CELL_BASE_LIGHT, CELL_SHADE_LIGHT, CELL_LIP_LIGHT);
         _cellDark  = MakeToggleCellSprite(CELL_BASE_DARK,  CELL_SHADE_DARK,  CELL_LIP_DARK);
         _toggleCellSprite = _cellLight;   // 시작은 화이트 모드 = 흰 방
@@ -219,7 +221,7 @@ public partial class InGameUI
         return Sprite.Create(tex, new Rect(0, 0, SIZE, SIZE), new Vector2(0.5f, 0.5f));
     }
 
-    /// <summary>공유 카드(SharePanel) 배경용 방. 굽는 데 시간이 걸려 색마다 한 번만 굽는다.</summary>
+    /// <summary>방 그림(인게임·공유 카드 공용). 굽는 데 시간이 걸려 색마다 앱에서 한 번만 굽는다.</summary>
     internal static Sprite ShareRoomSprite(bool light)
     {
         if (light) return s_shareRoomLight ??= MakeRoomSprite(TOGGLE_BG_LIGHT, TOGGLE_LINE_LIGHT);

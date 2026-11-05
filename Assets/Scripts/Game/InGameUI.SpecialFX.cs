@@ -58,6 +58,7 @@ public partial class InGameUI
         var rootGo = new GameObject(SPFX_ROOT);
         rootGo.transform.SetParent(_canvas.transform, false);
         var root = rootGo.AddComponent<RectTransform>();
+        UIEffects.SubCanvas(rootGo);
         root.anchorMin = root.anchorMax = new Vector2(0.5f, 0.5f);
         root.sizeDelta = Vector2.zero;
         root.position  = ov.rectTransform.position;

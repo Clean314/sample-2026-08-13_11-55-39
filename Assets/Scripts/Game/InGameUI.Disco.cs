@@ -99,6 +99,7 @@ public partial class InGameUI
         layerGo.transform.SetSiblingIndex(1);
         _spotLayerGo = layerGo;
         var layerRt = layerGo.AddComponent<RectTransform>();
+        UIEffects.SubCanvas(layerGo);   // 매 프레임 움직이는 층 — 판·점수와 따로 묶는다
         layerRt.anchorMin = Vector2.zero;
         layerRt.anchorMax = Vector2.one;
         layerRt.offsetMin = layerRt.offsetMax = Vector2.zero;
@@ -402,26 +403,48 @@ public partial class InGameUI
         return true;
     }
 
-    // 곡 후반의 전용 배경(도시 야경 → 드라이빙)을 시간에 맞춰 띄우고 내린다.
-    // 각 배경이 스스로 Destroy하므로 여기서는 진입 트리거와 기본 배경 on/off만 본다.
+    // 곡 후반의 전용 배경(도시 야경 → 드라이빙). 둘 다 텍스처 여러 장과 건물 수십 채를 세우는
+    // 무거운 일이라, 곡 도중(146.7초·180.6초)에 만들면 그 순간 화면이 멈칫한다. 그래서 게임을
+    // 시작할 때 미리 만들어 꺼 두고, 여기서는 구간에 들어오면 켜기만 한다.
+    // 구간을 벗어나면 각 배경이 스스로 꺼진다(되감기·곡 루프 포함). 다음에 다시 켜면 된다.
+    void PrebuildSceneBackgrounds()
+    {
+        // 만드는 순서가 겹치는 순서다 — 나중에 놓인 드라이빙이 도시 뒤에 깔린다(PlaceSceneBackground).
+        _cityLight = CityLightBackground.Spawn(_canvas, _beatTracker);
+        PlaceSceneBackground(_cityLight.transform);
+        _cityLight.gameObject.SetActive(false);
+
+        _driving = DrivingBackground.Spawn(_canvas, _beatTracker);
+        PlaceSceneBackground(_driving.transform);
+        _driving.gameObject.SetActive(false);
+    }
+
     void UpdateSceneBackground(double playbackSec)
     {
-        if (_cityLight == null
+        if (!Live(_cityLight)
             && playbackSec >= CityLightBackground.APPEAR_START
             && playbackSec <  CityLightBackground.FADE_OUT_END)
         {
-            _cityLight = CityLightBackground.Spawn(_canvas, _beatTracker);
-            PlaceSceneBackground(_cityLight.transform);
+            if (_cityLight == null)
+            {
+                _cityLight = CityLightBackground.Spawn(_canvas, _beatTracker);
+                PlaceSceneBackground(_cityLight.transform);
+            }
+            _cityLight.gameObject.SetActive(true);
         }
 
         // 도시가 페이드아웃을 시작할 때 드라이빙 배경이 그 뒤에서 함께 뜬다(크로스페이드).
-        // 상한을 같이 봐야 한다 — 드라이빙이 스스로 사라진 뒤에도 조건이 참이면 매 프레임 다시 스폰된다.
-        if (_driving == null
+        // 상한을 같이 봐야 한다 — 드라이빙이 스스로 꺼진 뒤에도 조건이 참이면 매 프레임 다시 켜진다.
+        if (!Live(_driving)
             && playbackSec >= DrivingBackground.APPEAR_START
             && playbackSec <  DrivingBackground.DISAPPEAR_AT)
         {
-            _driving = DrivingBackground.Spawn(_canvas, _beatTracker);
-            PlaceSceneBackground(_driving.transform);
+            if (_driving == null)
+            {
+                _driving = DrivingBackground.Spawn(_canvas, _beatTracker);
+                PlaceSceneBackground(_driving.transform);
+            }
+            _driving.gameObject.SetActive(true);
         }
 
         // 전용 배경(도시·드라이빙)이 떠 있는 동안에는 기본 전체 배경을 감춘다.
@@ -716,6 +739,7 @@ public partial class InGameUI
         layerGo.transform.SetParent(_canvas.transform, false);
         layerGo.transform.SetSiblingIndex(2); // Background(0), DiscoSpotLayer(1) 위, 그리드/트레이 아래
         var layerRt = layerGo.AddComponent<RectTransform>();
+        UIEffects.SubCanvas(layerGo);   // 링·스포크·별이 매 프레임 움직인다
         layerRt.anchorMin = Vector2.zero;
         layerRt.anchorMax = Vector2.one;
         layerRt.offsetMin = layerRt.offsetMax = Vector2.zero;
@@ -800,6 +824,7 @@ public partial class InGameUI
         go.transform.SetSiblingIndex(_blockLayerRt.GetSiblingIndex());   // 블록 바로 아래
 
         var rt          = go.AddComponent<RectTransform>();
+        UIEffects.SubCanvas(go);   // 빗방울 180개가 매 프레임 움직인다
         rt.anchorMin    = rt.anchorMax = new Vector2(0.5f, 0.5f);
         rt.pivot        = new Vector2(0.5f, 0.5f);
         rt.sizeDelta    = Vector2.zero;
@@ -1101,6 +1126,7 @@ public partial class InGameUI
         layerGo.transform.SetParent(_gridRt, false);
         _starLayerGo = layerGo;
         var layerRt = layerGo.AddComponent<RectTransform>();
+        UIEffects.SubCanvas(layerGo);
         layerRt.anchorMin = Vector2.zero;
         layerRt.anchorMax = Vector2.one;
         layerRt.offsetMin = layerRt.offsetMax = Vector2.zero;

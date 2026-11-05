@@ -707,6 +707,10 @@ public class MainMenuUI : MonoBehaviour
         var panel = FindFirstObjectByType<LeaderboardPanel>();
         if (panel != null) { Destroy(panel.gameObject); return; }
 
+        // 공유 화면도 마찬가지다. 안 챙기면 공유 화면 위에 종료 확인 창이 뜬다.
+        var share = FindFirstObjectByType<SharePanel>();
+        if (share != null) { Destroy(share.gameObject); return; }
+
         ShowQuitDialog();
     }
 

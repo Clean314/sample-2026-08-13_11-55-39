@@ -39,12 +39,14 @@ public partial class InGameUI
         var rootGo = new GameObject(LCFX_ROOT);
         rootGo.transform.SetParent(_canvas.transform, false);
         var root = rootGo.AddComponent<RectTransform>();
+        UIEffects.SubCanvas(rootGo);   // 조각이 매 프레임 움직인다 — 판과 따로 묶는다
         root.anchorMin = Vector2.zero;
         root.anchorMax = Vector2.one;
         root.offsetMin = root.offsetMax = Vector2.zero;
 
         float q    = LCFX_BODY * 0.25f;                    // 사분면 중심까지 거리
         float size = LCFX_BODY * 0.5f - LCFX_GAP;
+        var shards = new List<LcfxShard>(cells.Count * 4);
         foreach (var (r, c) in cells)
         {
             var ov = _blockOverlays[r, c];
@@ -59,55 +61,102 @@ public partial class InGameUI
                 Vector2 dir = offset.normalized + Random.insideUnitCircle * 0.35f;
                 dir = (dir.normalized + new Vector2(0f, LCFX_SHARD_UP)).normalized;
                 float speed = LCFX_SHARD_SPEED * Random.Range(0.7f, 1.3f);
-                StartCoroutine(Shard(root, ov.sprite, center + (Vector3)(offset * scale), size, dir * speed));
+
+                var img = TakeFx(root);
+                img.sprite = ov.sprite;
+                img.color  = Color.white;
+                var rt = img.rectTransform;
+                rt.sizeDelta = new Vector2(size, size);
+                rt.position  = center + (Vector3)(offset * scale);
+                shards.Add(new LcfxShard
+                {
+                    img = img, rt = rt, pos = rt.anchoredPosition, vel = dir * speed,
+                    spin = Random.Range(-LCFX_SPIN, LCFX_SPIN),
+                });
             }
 
             // 원래 블록은 바로 숨긴다. 같은 자리에 조각이 떠 있으니 끊김 없이 이어진다.
             ov.color = Color.clear;
         }
 
+        // 조각은 따로 돌아 다음 조작을 막지 않는다. 오브젝트는 풀에서 빌리고, 움직임은 코루틴 하나가 맡는다.
+        StartCoroutine(AnimateShards(rootGo, shards));
         yield return new WaitForSeconds(LCFX_HOLD);
-
-        // 조각이 다 떨어질 때까지 루트는 남겨 두되, 기다리지는 않는다.
-        StartCoroutine(DestroyLater(rootGo, LCFX_SHARD_LIFE));
     }
 
-    IEnumerator Shard(Transform parent, Sprite spr, Vector3 worldPos, float size, Vector2 vel)
+    struct LcfxShard { public Image img; public RectTransform rt; public Vector2 pos, vel; public float spin, rot; }
+
+    IEnumerator AnimateShards(GameObject rootGo, List<LcfxShard> shards)
     {
-        if (parent == null) yield break;
-
-        var go = new GameObject("Shard");
-        go.transform.SetParent(parent, false);
-        var img = go.AddComponent<Image>();
-        img.sprite        = spr;
-        img.raycastTarget = false;
-        var rt = img.rectTransform;
-        rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
-        rt.sizeDelta = new Vector2(size, size);
-        rt.position  = worldPos;
-
-        Vector2 pos  = rt.anchoredPosition;
-        float   spin = Random.Range(-LCFX_SPIN, LCFX_SPIN);
-        float   rot  = 0f;   // 처음엔 반듯해야 블록이 쪼개진 모양으로 읽힌다
-
         float t = 0f;
         while (t < LCFX_SHARD_LIFE)
         {
-            if (rt == null) yield break;
+            if (rootGo == null) yield break;   // 게임오버 정리가 통째로 치웠다
             float dt = Time.deltaTime;
             t += dt;
-            vel.y -= LCFX_GRAVITY * dt;
-            pos   += vel * dt;
-            rot   += spin * dt;
             float k = Mathf.Clamp01(t / LCFX_SHARD_LIFE);
-            rt.anchoredPosition = pos;
-            rt.localRotation    = Quaternion.Euler(0f, 0f, rot);
-            rt.localScale       = Vector3.one * Mathf.Lerp(1f, 0.5f, k * k);
+            var scale = Vector3.one * Mathf.Lerp(1f, 0.5f, k * k);
             // 처음 40% 는 또렷하게, 그 뒤로 옅어진다
-            img.color = new Color(1f, 1f, 1f, 1f - Mathf.Clamp01((k - 0.4f) / 0.6f));
+            var col = new Color(1f, 1f, 1f, 1f - Mathf.Clamp01((k - 0.4f) / 0.6f));
+            for (int i = 0; i < shards.Count; i++)
+            {
+                var sh = shards[i];
+                sh.vel.y -= LCFX_GRAVITY * dt;
+                sh.pos   += sh.vel * dt;
+                sh.rot   += sh.spin * dt;   // 처음엔 반듯해야 블록이 쪼개진 모양으로 읽힌다
+                sh.rt.anchoredPosition = sh.pos;
+                sh.rt.localRotation    = Quaternion.Euler(0f, 0f, sh.rot);
+                sh.rt.localScale       = scale;
+                sh.img.color           = col;
+                shards[i] = sh;
+            }
             yield return null;
         }
-        if (go != null) Destroy(go);
+        foreach (var sh in shards) ReturnFx(sh.img);
+        Destroy(rootGo);
+    }
+
+    // ── 이펙트용 이미지 풀 ────────────────────────────────────────
+    // 줄을 지울 때마다 수십~백여 개의 이미지를 만들었다 지우면 그때마다 할당·정리 비용이 몰린다.
+    // 다 쓴 것은 꺼진 보관함(FxPool) 밑에 모아 두었다가 다음 클리어에 다시 쓴다.
+    // 게임오버 정리가 이펙트 루트를 통째로 지우면 그 안에 있던 것은 같이 사라지는데, 그건 그대로 둔다 —
+    // 풀에서 꺼낼 때 사라진 것은 건너뛰고 모자라면 새로 만든다.
+    readonly Stack<Image> _fxPool = new Stack<Image>();
+    GameObject _fxPoolRoot;
+
+    Image TakeFx(Transform parent)
+    {
+        while (_fxPool.Count > 0)
+        {
+            var img = _fxPool.Pop();
+            if (img == null) continue;
+            var rt = img.rectTransform;
+            rt.SetParent(parent, false);
+            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.localRotation = Quaternion.identity;
+            rt.localScale    = Vector3.one;
+            img.type = Image.Type.Simple;
+            img.pixelsPerUnitMultiplier = 1f;
+            return img;
+        }
+        var go = new GameObject("Fx");
+        go.transform.SetParent(parent, false);
+        var n = go.AddComponent<Image>();
+        n.raycastTarget = false;
+        return n;
+    }
+
+    void ReturnFx(Image img)
+    {
+        if (img == null) return;
+        if (_fxPoolRoot == null)
+        {
+            _fxPoolRoot = new GameObject("FxPool");
+            _fxPoolRoot.transform.SetParent(_canvas.transform, false);
+            _fxPoolRoot.SetActive(false);   // 꺼진 부모 밑이라 그려지지도 갱신되지도 않는다
+        }
+        img.rectTransform.SetParent(_fxPoolRoot.transform, false);
+        _fxPool.Push(img);
     }
 
     IEnumerator DestroyLater(GameObject go, float sec)
