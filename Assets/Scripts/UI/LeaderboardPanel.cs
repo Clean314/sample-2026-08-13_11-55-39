@@ -334,11 +334,23 @@ public class LeaderboardPanel : MonoBehaviour
         return btn;
     }
 
-    static Font Font4() =>
-        Resources.Load<Font>("Fonts/SCDream4") ?? Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+    static Font Font4() => GameFonts.Regular;   // 지금 언어의 본문 폰트
 
-    internal static Sprite RoundedSprite(int w, int h, int r) => MakeRounded(w, h, r, 0);
-    internal static Sprite RoundedBorderSprite(int w, int h, int r, int border) => MakeRounded(w, h, r, border);
+    internal static Sprite RoundedSprite(int w, int h, int r) => Cached(w, h, r, 0);
+    internal static Sprite RoundedBorderSprite(int w, int h, int r, int border) => Cached(w, h, r, border);
+
+    // 같은 모양은 한 번만 굽는다. 순위표·공유 화면의 탭이나 언어 목록의 칸처럼 화면을 열 때마다
+    // 여러 장을 부르는데, 매번 새로 구우면 버린 텍스처가 씬을 바꿀 때까지 쌓인다.
+    static readonly System.Collections.Generic.Dictionary<(int, int, int, int), Sprite> s_rounded =
+        new System.Collections.Generic.Dictionary<(int, int, int, int), Sprite>();
+
+    static Sprite Cached(int w, int h, int r, int border)
+    {
+        var key = (w, h, r, border);
+        if (!s_rounded.TryGetValue(key, out var spr) || spr == null)
+            s_rounded[key] = spr = MakeRounded(w, h, r, border);
+        return spr;
+    }
 
     // 둥근 사각형(테두리 두께 0이면 꽉 찬 사각형). 9-slice로 늘려 쓴다.
     static Sprite MakeRounded(int w, int h, int radius, int border)

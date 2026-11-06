@@ -249,8 +249,15 @@ public class SharePanel : MonoBehaviour
         var best   = _bestText = Label(_card, LocalizationManager.Instance.Get("best"), 40, GOLD,
                            new Vector2(0, -175f), new Vector2(760, 60));
         best.fontStyle = FontStyle.Bold;
-        _scoreText = Label(_card, "", 128, Color.white, new Vector2(0, -280f), new Vector2(800, 160));
-        _scoreText.font = Resources.Load<Font>("Fonts/SCDream8") ?? _scoreText.font;
+        _scoreText = Label(_card, "", 128, Color.white, new Vector2(0, -280f), new Vector2(700, 160));
+        _scoreText.font = GameFonts.Bold;
+        // 점수가 길어지면(약 1억 이상) 128pt 로는 카드 테두리 밖으로 나간다. 상자(700) 안에 들어가도록
+        // 글자를 줄인다. 9,999,999 까지는 128pt 그대로, 최대치 2,147,483,647 은 약 95pt 가 된다.
+        _scoreText.horizontalOverflow   = HorizontalWrapMode.Wrap;
+        _scoreText.verticalOverflow     = VerticalWrapMode.Truncate;
+        _scoreText.resizeTextForBestFit = true;
+        _scoreText.resizeTextMinSize    = 60;
+        _scoreText.resizeTextMaxSize    = 128;
         _nameText  = Label(_card, "", 44, BORDER, new Vector2(0, -410f), new Vector2(760, 70));
 
         // 도시·방 배경 위에서도 읽히게 카드 글자에만 살짝 그림자를 깐다 (밝은 방에서는 끈다)
@@ -455,7 +462,7 @@ public class SharePanel : MonoBehaviour
     {
         var rt = NewChild("Label", parent);
         var t = rt.gameObject.AddComponent<Text>();
-        t.font          = Resources.Load<Font>("Fonts/SCDream4") ?? Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        t.font          = GameFonts.Regular;
         t.fontSize      = size;
         t.fontStyle     = FontStyle.Bold;
         t.color         = color;
@@ -492,7 +499,7 @@ public class SharePanel : MonoBehaviour
 
         // ← (U+2190) 는 SCDream8 에 있다. 굵은 ⬅ 는 폰트에 없다.
         var t = Label(rt, "←", 48, new Color32(0xE2, 0xE8, 0xF0, 255), Vector2.zero, Vector2.zero);
-        t.font = Resources.Load<Font>("Fonts/SCDream8") ?? t.font;
+        t.font = GameFonts.SymbolBold;   // ← 는 M PLUS 2 에 없다
         Stretch(t.rectTransform);
     }
 

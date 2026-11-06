@@ -285,9 +285,11 @@ public partial class InGameUI
             var t = AddHelpText(_helpContent, arg, HELP_GLYPH_PT, Color.white,
                                 new Vector2(HELP_ICON_X, y), new Vector2(230f, HELP_ICON),
                                 TextAnchor.MiddleCenter);
+            // 게이지 아이콘(● ○)은 M PLUS 2 에 없는 기호라 언어와 상관없이 SCDream 으로 찍는다.
+            if (kind == HelpIcon.Glyph) t.font = GameFonts.SymbolRegular;
             if (kind == HelpIcon.Combo)
             {
-                t.font      = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
+                t.font      = GameFonts.Bold;
                 t.fontStyle = FontStyle.Bold;
                 t.fontSize  = COMBO_STATUS_FONT;   // 실제 상태등 숫자 크기와 같게
             }

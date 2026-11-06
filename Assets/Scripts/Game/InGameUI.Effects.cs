@@ -95,7 +95,7 @@ public partial class InGameUI
         var lg = new GameObject("Label");
         lg.transform.SetParent(parent, false);
         var t = lg.AddComponent<Text>();
-        t.font          = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
+        t.font          = GameFonts.Bold;
         t.fontSize      = size;
         t.fontStyle     = FontStyle.Bold;
         t.alignment     = TextAnchor.MiddleCenter;

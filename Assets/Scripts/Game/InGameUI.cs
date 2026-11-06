@@ -890,7 +890,7 @@ public partial class InGameUI : MonoBehaviour
             var tGo = new GameObject("Label");
             tGo.transform.SetParent(pillGo.transform, false);
             _comboStatusText               = tGo.AddComponent<Text>();
-            _comboStatusText.font          = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
+            _comboStatusText.font          = GameFonts.Bold;
             _comboStatusText.fontSize      = COMBO_STATUS_FONT;
             _comboStatusText.fontStyle     = FontStyle.Bold;
             _comboStatusText.alignment     = TextAnchor.MiddleCenter;
@@ -967,7 +967,7 @@ public partial class InGameUI : MonoBehaviour
         var txtGo = new GameObject("Text");
         txtGo.transform.SetParent(obj.transform, false);
         var txt = txtGo.AddComponent<Text>();
-        txt.font          = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
+        txt.font          = GameFonts.SymbolBold;   // ← 는 M PLUS 2 에 없다 — 언어와 상관없이 SCDream
         txt.fontSize      = 48;
         txt.fontStyle     = FontStyle.Bold;
         txt.color         = BACK_TEXT;
@@ -1887,7 +1887,7 @@ public partial class InGameUI : MonoBehaviour
             reviveRt.sizeDelta        = new Vector2(620, 120);
 
             AddText(reviveGo.transform,
-                loc.CurrentLanguage == Language.Korean ? "▶ 광고 보고 부활" : "▶ Revive (Watch Ad)",
+                loc.Get("revive_ad"),
                 48, Color.white,
                 Vector2.zero, Vector2.zero, fullStretch: true);
 
@@ -2361,10 +2361,8 @@ public partial class InGameUI : MonoBehaviour
         return dx * dx + dy * dy <= (float)r * r;
     }
 
-    // 폰트 로드 실패 시 자기 자신을 부르면 무한 재귀(StackOverflow)라 빌트인 폰트로 떨어뜨린다.
-    // MainMenuUI.Font4()와 같은 폴백.
-    Font Font4() => Resources.Load<Font>("Fonts/SCDream4")
-                    ?? Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+    // 지금 언어의 본문 폰트(GameFonts). 로드 실패 시 빌트인 폰트로 떨어진다.
+    Font Font4() => GameFonts.Regular;
 }
 
 // ═══════════════════════════════════════════════════════════════

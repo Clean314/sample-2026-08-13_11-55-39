@@ -325,7 +325,7 @@ public class MainMenuUI : MonoBehaviour
         txt.fontStyle = FontStyle.Bold;
         txt.alignment = TextAnchor.MiddleCenter;
         txt.color     = logoColor;
-        txt.font      = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
+        txt.font      = GameFonts.Bold;
         txt.raycastTarget = false;
         rt.sizeDelta  = new Vector2(980, 200);
     }
@@ -409,7 +409,7 @@ public class MainMenuUI : MonoBehaviour
         nameObj.transform.SetParent(container.transform, false);
         _modeNameText = nameObj.AddComponent<Text>();
         _modeNameText.text      = "";
-        _modeNameText.font      = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
+        _modeNameText.font      = GameFonts.Bold;
         _modeNameText.fontSize  = 56;
         _modeNameText.fontStyle = FontStyle.Normal;
         _modeNameText.alignment = TextAnchor.MiddleCenter;
@@ -615,7 +615,7 @@ public class MainMenuUI : MonoBehaviour
         {
             var txt = nextObj.AddComponent<Text>();
             txt.text      = LocalizationManager.Instance.Get("coming_soon");
-            txt.font      = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
+            txt.font      = GameFonts.Bold;
             txt.fontSize  = 78;
             txt.fontStyle = FontStyle.Bold;
             txt.alignment = TextAnchor.MiddleCenter;
@@ -702,6 +702,7 @@ public class MainMenuUI : MonoBehaviour
     void OnBackPressed()
     {
         if (_quitOverlay != null) { CloseQuitDialog(); return; }
+        if (_langMenu != null)    { CloseLanguageMenu(); return; }
 
         // 순위표가 떠 있으면 그것부터 닫는다.
         var panel = FindFirstObjectByType<LeaderboardPanel>();
@@ -744,7 +745,7 @@ public class MainMenuUI : MonoBehaviour
 
         var title = titleObj.AddComponent<Text>();
         title.text      = loc.Get("quit_title");
-        title.font      = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
+        title.font      = GameFonts.Bold;
         title.fontSize  = 68;
         title.alignment = TextAnchor.MiddleCenter;
         title.color     = START_TEXT;
@@ -820,7 +821,9 @@ public class MainMenuUI : MonoBehaviour
         {
             // 별표는 "특별한 선택지"라는 뜻으로 흔히 읽히고, 이모지와 달리 어느 폰트에서나
             // 같은 모양으로 나온다.
-            _startBtnText.text  = offerUnlock ? "★ " + loc.Get("unlock_all") : loc.Get("start");
+            // ★ 는 M PLUS 2 에 없다. 그 폰트를 쓰는 언어에서는 별 없이 글자만.
+            string star = GameFonts.UsesMPlus(loc.CurrentLanguage) ? "" : "★ ";
+            _startBtnText.text  = offerUnlock ? star + loc.Get("unlock_all") : loc.Get("start");
             _startBtnText.color = offerUnlock ? UNLOCK_TEXT : START_TEXT;
         }
 
@@ -911,7 +914,7 @@ public class MainMenuUI : MonoBehaviour
         txtObj.transform.SetParent(obj.transform, false);
         _langBtnText = txtObj.AddComponent<Text>();
         _langBtnText.text      = LocalizationManager.Instance.Get("lang_btn");
-        _langBtnText.font      = Resources.Load<Font>("Fonts/SCDream8") ?? Font4();
+        _langBtnText.font      = GameFonts.Bold;
         _langBtnText.fontSize  = 42;
         _langBtnText.fontStyle = FontStyle.Bold;
         ColorUtility.TryParseHtmlString("#e2e8f0", out Color txtColor);
@@ -924,7 +927,125 @@ public class MainMenuUI : MonoBehaviour
         txtRt.offsetMin = Vector2.zero;
         txtRt.offsetMax = Vector2.zero;
 
-        btn.onClick.AddListener(() => LocalizationManager.Instance.ToggleLanguage());
+        // 누르면 버튼 아래로 언어 목록이 펼쳐진다. 언어가 늘어도 원하는 것을 한 번에 고를 수 있게.
+        btn.onClick.AddListener(ToggleLanguageMenu);
+    }
+
+    // ── 언어 고르기 목록 (언어 버튼 아래로 펼쳐지는 드롭다운) ──────────
+    GameObject _langMenu;
+
+    void ToggleLanguageMenu()
+    {
+        if (_langMenu != null) { CloseLanguageMenu(); return; }
+
+        var canvasTf = _canvasObj.transform;
+        var loc      = LocalizationManager.Instance;
+        var choices  = LocalizationManager.Choices;
+
+        // 화면 전체를 덮는 투명 판 — 목록 밖을 누르면 닫힌다. 뒤 버튼이 같이 눌리지도 않는다.
+        _langMenu = new GameObject("LanguageMenu");
+        _langMenu.transform.SetParent(canvasTf, false);
+        _langMenu.transform.SetAsLastSibling();
+        var blocker = _langMenu.AddComponent<Image>();
+        blocker.color = new Color(0f, 0f, 0f, 0.25f);
+        var bRt = _langMenu.GetComponent<RectTransform>();
+        bRt.anchorMin = Vector2.zero;
+        bRt.anchorMax = Vector2.one;
+        bRt.offsetMin = bRt.offsetMax = Vector2.zero;
+        var bBtn = _langMenu.AddComponent<Button>();
+        bBtn.transition = Selectable.Transition.None;
+        bBtn.onClick.AddListener(CloseLanguageMenu);
+
+        // 목록 상자: 언어 버튼(왼쪽 위 30,-55, 160x80) 바로 아래
+        // 언어가 많아 두 줄(열)로 나눠 놓는다. 한 줄로 길게 내리면 짧은 화면에서 아래가 잘린다.
+        const float COL_W = 340f, ROW = 76f, PAD = 10f;
+        int   cols = choices.Length > 6 ? 2 : 1;
+        int   rows = (choices.Length + cols - 1) / cols;
+        float W    = COL_W * cols + PAD * 2f;
+        float h    = rows * ROW + PAD * 2f;
+
+        var panel = new GameObject("Panel");
+        panel.transform.SetParent(_langMenu.transform, false);
+        var pImg = panel.AddComponent<Image>();
+        pImg.sprite = LeaderboardPanel.RoundedSprite(80, 80, 26);
+        pImg.type   = Image.Type.Sliced;
+        pImg.color  = new Color(0.10f, 0.10f, 0.17f, 0.98f);
+        var pRt = panel.GetComponent<RectTransform>();
+        pRt.anchorMin = pRt.anchorMax = new Vector2(0f, 1f);
+        pRt.pivot     = new Vector2(0f, 1f);
+        pRt.anchoredPosition = new Vector2(30f, -55f - 80f - 12f);
+        pRt.sizeDelta        = new Vector2(W, h);
+
+        var border = new GameObject("Border");
+        border.transform.SetParent(panel.transform, false);
+        var brImg = border.AddComponent<Image>();
+        brImg.sprite        = LeaderboardPanel.RoundedBorderSprite(80, 80, 26, 2);
+        brImg.type          = Image.Type.Sliced;
+        brImg.color         = new Color(0.886f, 0.910f, 0.941f, 0.35f);
+        brImg.raycastTarget = false;
+        var brRt = brImg.rectTransform;
+        brRt.anchorMin = Vector2.zero;
+        brRt.anchorMax = Vector2.one;
+        brRt.offsetMin = brRt.offsetMax = Vector2.zero;
+
+        for (int i = 0; i < choices.Length; i++)
+        {
+            var (lang, name) = choices[i];
+            bool current = lang == loc.CurrentLanguage;
+
+            var row = new GameObject("Lang_" + lang);
+            row.transform.SetParent(panel.transform, false);
+            var rImg = row.AddComponent<Image>();
+            rImg.sprite = LeaderboardPanel.RoundedSprite(80, 80, 20);
+            rImg.type   = Image.Type.Sliced;
+            // 지금 언어는 은은하게 칠해 둔다. 나머지는 투명(누를 때만 비친다).
+            rImg.color  = current ? new Color(1f, 0.85f, 0.3f, 0.14f) : new Color(1f, 1f, 1f, 0f);
+            var rRt = row.GetComponent<RectTransform>();
+            // 위에서 아래로 먼저 채우고 다음 열로 넘어간다(한국어·English·… 순서가 세로로 읽히게).
+            int col = i / rows, r = i % rows;
+            rRt.anchorMin = rRt.anchorMax = new Vector2(0f, 1f);
+            rRt.pivot     = new Vector2(0f, 1f);
+            rRt.anchoredPosition = new Vector2(PAD + col * COL_W, -PAD - r * ROW);
+            rRt.sizeDelta        = new Vector2(COL_W, ROW);
+
+            var rBtn = row.AddComponent<Button>();
+            // 누르는 즉시 목록이 닫히고 화면 글자가 바뀌므로 눌림 색은 따로 두지 않는다.
+            rBtn.transition = Selectable.Transition.None;
+            var pick = lang;
+            rBtn.onClick.AddListener(() =>
+            {
+                CloseLanguageMenu();
+                if (pick == LocalizationManager.Instance.CurrentLanguage) return;
+                LocalizationManager.Instance.SetLanguage(pick);
+                // 폰트는 화면을 만들 때 정해진다(일본어·유럽 언어는 M PLUS 2). 글자만 바꾸면 폰트에 없는
+                // 글자가 빈칸이 되므로, 메인 화면을 새로 연다. 보던 모드는 ModeSession 에 남아 그대로다.
+                ModeSession.SelectedMode = _currentMode;
+                SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+            });
+
+            var tGo = new GameObject("Text");
+            tGo.transform.SetParent(row.transform, false);
+            var t = tGo.AddComponent<Text>();
+            t.font          = GameFonts.For(lang, true);   // 각 언어 이름을 그 언어의 폰트로
+            t.fontSize      = 38;
+            t.fontStyle     = FontStyle.Bold;
+            t.alignment     = TextAnchor.MiddleLeft;
+            t.color         = current ? new Color(1f, 0.85f, 0.3f) : new Color(0.886f, 0.910f, 0.941f);
+            t.text          = name;
+            t.raycastTarget = false;
+            t.horizontalOverflow = HorizontalWrapMode.Overflow;
+            var tRt = t.rectTransform;
+            tRt.anchorMin = Vector2.zero;
+            tRt.anchorMax = Vector2.one;
+            tRt.offsetMin = new Vector2(28f, 0f);
+            tRt.offsetMax = Vector2.zero;
+        }
+    }
+
+    void CloseLanguageMenu()
+    {
+        if (_langMenu != null) Destroy(_langMenu);
+        _langMenu = null;
     }
 
     // ── 버튼 겉모양 ──────────────────────────────────────────
@@ -1068,7 +1189,7 @@ public class MainMenuUI : MonoBehaviour
         return Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f));
     }
 
-    Font Font4() => Resources.Load<Font>("Fonts/SCDream4") ?? Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+    Font Font4() => GameFonts.Regular;   // 지금 언어의 본문 폰트
 
     // ── [DEBUG] 최고 점수 설정 패널 ──────────────────────────
     // 스와이프로 표시되는 현재 모드의 m{idx}_HighScore를 직접 편집
@@ -1304,6 +1425,12 @@ public class MainMenuUI : MonoBehaviour
         _adPrivacyText.text      = LocalizationManager.Instance.Get("ad_privacy");
         _adPrivacyText.font      = Font4();
         _adPrivacyText.fontSize  = 28;
+        // 이 버튼은 유럽에서만 보이는데, 그쪽 언어(스페인어·포르투갈어 등)는 "광고 설정"이 영어보다 두 배 길다.
+        // 160 폭 안에 들어가도록 두 줄까지 접고, 그래도 넘치면 글자를 줄인다.
+        _adPrivacyText.horizontalOverflow     = HorizontalWrapMode.Wrap;
+        _adPrivacyText.resizeTextForBestFit   = true;
+        _adPrivacyText.resizeTextMinSize      = 16;
+        _adPrivacyText.resizeTextMaxSize      = 28;
         _adPrivacyText.alignment = TextAnchor.MiddleCenter;
         ColorUtility.TryParseHtmlString("#e2e8f0", out Color txtColor);
         _adPrivacyText.color     = txtColor;
@@ -1311,7 +1438,7 @@ public class MainMenuUI : MonoBehaviour
 
         var txtRt = txtObj.GetComponent<RectTransform>();
         txtRt.anchorMin = Vector2.zero; txtRt.anchorMax = Vector2.one;
-        txtRt.offsetMin = Vector2.zero; txtRt.offsetMax = Vector2.zero;
+        txtRt.offsetMin = new Vector2(10f, 4f); txtRt.offsetMax = new Vector2(-10f, -4f);   // 두 줄로 접힐 때 테두리에 붙지 않게
     }
 
     void OnRemoveAdsClicked()

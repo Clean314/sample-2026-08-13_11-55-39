@@ -89,8 +89,7 @@ public class NetworkChecker : MonoBehaviour
         bgRt.offsetMin = bgRt.offsetMax = Vector2.zero;
 
         var loc  = LocalizationManager.Instance;
-        var font = Resources.Load<Font>("Fonts/SCDream4")
-                ?? Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        var font = GameFonts.Regular;
 
         // 와이파이 아이콘 (텍스트 위쪽 큰 사이즈)
         var iconTex = Resources.Load<Texture2D>("Sprites/UI/wifi");

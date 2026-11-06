@@ -102,16 +102,20 @@ public class GameManager : MonoBehaviour
 
         // 디스코는 콤보가 "유지해야 사는 규칙"이지 쌓는 점수가 아니다. 매 세트 지워야 하니
         // 살아 있는 한 콤보는 계속 오르기만 해서 단계가 아무 뜻이 없다. 배율·보너스 없이 줄 수만 센다.
+        long gain;
         if (ModeSession.IsDisco)
         {
-            Score += lines * 100;
+            gain = lines * 100L;
         }
         else
         {
             int tier = Mathf.Min(_combo, COMBO_TIER_MAX);
-            Score += lines * 100 * _combo
-                   + (tier >= 2 ? COMBO_BONUS_STEP * tier * (tier - 1) : 0);
+            gain = lines * 100L * _combo
+                 + (tier >= 2 ? COMBO_BONUS_STEP * tier * (tier - 1) : 0);
         }
+        // 점수는 int 라 21억(2,147,483,647)이 상한이다. 실제로는 콤보를 수천 번 이어야 닿는 값이지만,
+        // 넘치면 음수로 뒤집혀 최고 기록이 망가진다. 넘지 않게 상한에서 멈춘다.
+        Score = (int)System.Math.Min(int.MaxValue, Score + gain);
 
         OnComboCleared?.Invoke(_combo);
     }
