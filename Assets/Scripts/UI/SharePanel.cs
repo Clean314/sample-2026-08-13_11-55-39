@@ -87,6 +87,19 @@ public class SharePanel : MonoBehaviour
     string        _resultErr;
     bool          _busy;
 
+    /// <summary>화면을 닫은 뒤 이어서 할 일. 게임오버에서 연 경우 "다시 시작"이 들어온다.</summary>
+    public System.Action OnClosed;
+
+    /// <summary>화면을 닫는다(뒤로 가기 버튼·키). 닫은 뒤 OnClosed 를 부른다.</summary>
+    public void Close()
+    {
+        if (_busy) return;   // 저장하는 중에는 닫지 않는다
+        var next = OnClosed;
+        OnClosed = null;
+        Destroy(gameObject);
+        next?.Invoke();
+    }
+
     public static SharePanel Open(Transform canvas, int startMode)
     {
         var go = new GameObject("SharePanel");
@@ -103,7 +116,8 @@ public class SharePanel : MonoBehaviour
         var loc = LocalizationManager.Instance;
 
         var dim = gameObject.AddComponent<Image>();
-        dim.color = new Color(0.03f, 0.03f, 0.07f, 0.96f);   // 뒤 메뉴 터치를 막는다
+        // 불투명하게 덮는다. 반투명이면 뒤의 메뉴·게임오버 글자가 비쳐 겹쳐 보인다. 뒤 터치도 막는다.
+        dim.color = new Color(0.03f, 0.03f, 0.07f, 1f);
         var root = GetComponent<RectTransform>();
         root.anchorMin = Vector2.zero;
         root.anchorMax = Vector2.one;
@@ -113,8 +127,9 @@ public class SharePanel : MonoBehaviour
         float half     = CanvasMetrics.HalfHeight;
         float bottom   = -half + BannerReserve() + EDGE_BOTTOM;
         float rowY     = bottom + 60f;                 // 버튼 줄 가운데 (버튼 높이 120)
-        float statusY  = rowY + 60f + 40f;
-        float cardLow  = statusY + 34f;                // 카드 아래끝
+        // 안내 문구는 두 줄까지 들어갈 자리(높이 100)를 둔다. 영어 안내는 한 줄을 넘는다.
+        float statusY  = rowY + 60f + 66f;
+        float cardLow  = statusY + 56f;                // 카드 아래끝
         float tabY     = half - EDGE_TOP - 48f;        // 탭 가운데 (탭 높이 96)
         float cardHigh = tabY - 48f - 30f;             // 카드 위끝 한계
         _cardScale = Mathf.Min(CARD_SCALE_MAX, (cardHigh - cardLow) / CARD_H);
@@ -149,7 +164,10 @@ public class SharePanel : MonoBehaviour
 
         // ── 아래: 안내 문구, 그 밑 한 줄에 [이미지 저장] [리롤] ──
         // 닫기는 인게임처럼 왼쪽 위 뒤로 가기 버튼이 맡는다.
-        _status = Label(transform, "", 34, DIM, new Vector2(0, statusY), new Vector2(960, 60));
+        _status = Label(transform, "", 40, DIM, new Vector2(0, statusY), new Vector2(960, 100));
+        // 글자를 키우면 영어 안내("Sign in on the leaderboard…")가 화면 폭을 넘는다. 넘치면 줄을 바꾼다.
+        _status.horizontalOverflow = HorizontalWrapMode.Wrap;
+        _status.verticalOverflow   = VerticalWrapMode.Overflow;
 
         BuildBackButton();
 
@@ -465,7 +483,7 @@ public class SharePanel : MonoBehaviour
         colors.pressedColor     = new Color(0.75f, 0.75f, 0.75f, 1f);
         colors.fadeDuration     = 0.1f;
         btn.colors = colors;
-        btn.onClick.AddListener(() => { if (!_busy) Destroy(gameObject); });
+        btn.onClick.AddListener(() => { if (!_busy) Close(); });
 
         rt.anchorMin        = rt.anchorMax = new Vector2(0f, 1f);
         rt.pivot            = new Vector2(0f, 1f);

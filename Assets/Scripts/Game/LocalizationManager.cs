@@ -69,6 +69,9 @@ public class LocalizationManager
 
         // ── 최고 점수 공유 카드 ──────────────────────────────────
         { "share_title",   new[] { "최고 점수 공유",        "Share Your Best"      } },
+        { "share_promo_desc", new[] { "카드로 점수를 자랑해 보세요.", "Show off your score with a card." } },
+        { "share_promo_btn",  new[] { "카드 만들기",        "Make a Card"          } },
+        { "share_promo_later",new[] { "추후 공유로도 만들기 가능합니다.", "You can also make one later from Share." } },
         { "share_save",    new[] { "이미지 저장",           "Save Image"           } },
         { "share_saving",  new[] { "저장하는 중...",         "Saving..."            } },
         { "share_saved",   new[] { "사진 앱에 저장했습니다",   "Saved to your photos" } },

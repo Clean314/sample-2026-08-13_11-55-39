@@ -1527,7 +1527,9 @@ public partial class InGameUI : MonoBehaviour
         var backKb = UnityEngine.InputSystem.Keyboard.current;
         if (backKb != null && backKb.escapeKey.wasPressedThisFrame)
         {
-            if (_helpOverlay != null && _helpOverlay.activeSelf)
+            // 공유 화면·신기록 안내가 떠 있으면 그것부터 닫는다.
+            if (CloseShareLayers()) { }
+            else if (_helpOverlay != null && _helpOverlay.activeSelf)
             {
                 HideHelp();
             }
@@ -1957,24 +1959,40 @@ public partial class InGameUI : MonoBehaviour
         btnRt.sizeDelta         = new Vector2(620, 120);
         btn.onClick.AddListener(() =>
         {
-            // 광고를 산 사람은 곧장 새 판으로. 아니면 제거를 한 번 권하고,
-            // 거절하면 전면 광고를 본 뒤에 시작한다.
-            if (RemoveAds.Owned) { RestartRun(discoMode); return; }
+            System.Action restart = () =>
+            {
+                // 광고를 산 사람은 곧장 새 판으로. 아니면 제거를 한 번 권하고,
+                // 거절하면 전면 광고를 본 뒤에 시작한다.
+                if (RemoveAds.Owned) { RestartRun(discoMode); return; }
 
-            ShowRemoveAdsOffer(
-                onPurchased: () => RestartRun(discoMode),
-                onDeclined:  () =>
-                {
-                    // 광고 소리가 게임 음악 위에 겹치지 않게 잠시 멈춘다.
-                    // 디스코는 게임오버에서 TapeStop이 이미 멎게 해 뒀다.
-                    if (!discoMode) BGMManager.Instance?.Pause();
-                    AdManager.GetOrCreate().ShowInterstitial(() => RestartRun(discoMode));
-                });
+                ShowRemoveAdsOffer(
+                    onPurchased: () => RestartRun(discoMode),
+                    onDeclined:  () =>
+                    {
+                        // 광고 소리가 게임 음악 위에 겹치지 않게 잠시 멈춘다.
+                        // 디스코는 게임오버에서 TapeStop이 이미 멎게 해 뒀다.
+                        if (!discoMode) BGMManager.Instance?.Pause();
+                        AdManager.GetOrCreate().ShowInterstitial(() => RestartRun(discoMode));
+                    });
+            };
+
+            // 이번 판에 최고 점수를 넘었으면, 부활하지 않고 판을 접기로 한 이 순간에 공유 안내를
+            // 한 번 띄운다(InGameUI.SharePromo.cs). 게임오버 직후에 띄우면 부활할지 고르기도 전에
+            // 가로막는다. 안내를 닫으면 하려던 다시 시작으로 이어진다.
+            if (_gm.NewBestThisRun && _gm.Score > 0 && !_sharePromoShown)
+            {
+                _sharePromoShown = true;
+                ShowSharePromo(onClose: restart);
+                return;
+            }
+            restart();
         });
         ColorUtility.TryParseHtmlString("#e2e8f0", out Color restartTextColor);
         AddText(btnGo.transform, loc.Get("restart"), 55, restartTextColor,
             Vector2.zero, Vector2.zero, fullStretch: true);
     }
+
+    bool _sharePromoShown;   // 이번 판에 신기록 안내를 이미 보여 줬는지
 
     /// <summary>게임오버 화면에서 새 판으로 넘어가는 실제 동작.
 
@@ -2019,7 +2037,9 @@ public partial class InGameUI : MonoBehaviour
     /// 바뀌어 있을 수 있어서, 넘겨받은 참조는 이미 파괴된 것일 수 있다.</summary>
     void RestartRun(bool discoMode)
     {
-        _reviveUsed = false;
+        _reviveUsed      = false;
+        _sharePromoShown = false;
+        CloseSharePromo();
         ClearTransientEffects();   // 이전 판의 잔상이 새 판 위에 남지 않게
 
         // 디스코는 곡을 처음부터 다시 튼다. 새 판이니 연출도 도입부부터 시작해야 한다.

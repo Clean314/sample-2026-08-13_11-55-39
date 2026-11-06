@@ -28,6 +28,10 @@ public class GameManager : MonoBehaviour
     public int Score     { get; private set; }
     public int HighScore { get; private set; }
 
+    /// <summary>이번 판에서 최고 점수를 새로 세웠는지. 게임오버 때 신기록 공유 안내를 띄울지 정한다.
+    /// 이어 하기로 다시 들어와도 유지되도록 저장에 같이 남긴다. 부활해도 같은 판이라 그대로 둔다.</summary>
+    public bool NewBestThisRun { get; private set; }
+
     // 토글 모드: 현재 활성 색상 (0 = 화이트 모드, 1 = 블랙 모드)
     public int ToggleCurrentColor { get; private set; } = 0;
 
@@ -231,7 +235,7 @@ public class GameManager : MonoBehaviour
 
         if (Score > HighScore)
         {
-            HighScore = Score;
+            HighScore = Score; NewBestThisRun = true;
             SaveHighScore();
         }
 
@@ -409,7 +413,7 @@ public class GameManager : MonoBehaviour
         AddLineScore(2);
         if (Score > HighScore)
         {
-            HighScore = Score;
+            HighScore = Score; NewBestThisRun = true;
             SaveHighScore();
         }
 
@@ -492,7 +496,7 @@ public class GameManager : MonoBehaviour
 
             if (Score > HighScore)
             {
-                HighScore = Score;
+                HighScore = Score; NewBestThisRun = true;
                 SaveHighScore();
             }
         }
@@ -586,7 +590,7 @@ public class GameManager : MonoBehaviour
             AddLineScore(lines);
             if (Score > HighScore)
             {
-                HighScore = Score;
+                HighScore = Score; NewBestThisRun = true;
                 SaveHighScore();
             }
         }
@@ -653,6 +657,7 @@ public class GameManager : MonoBehaviour
         ToggleCurrentColor = 0;
         SpecialGauge       = 0;
         DiscoLineGauge     = 0;
+        NewBestThisRun     = false;
         GenerateNewPieces();
         ClearSave();
         OnStateChanged?.Invoke();
@@ -682,6 +687,7 @@ public class GameManager : MonoBehaviour
         PlayerPrefs.SetString(_mk + "save_board", sb.ToString());
         PlayerPrefs.SetInt(_mk + "save_score", Score);
         PlayerPrefs.SetInt(_mk + "save_combo", _combo);
+        PlayerPrefs.SetInt(_mk + "save_newbest", NewBestThisRun ? 1 : 0);
         // 세트 도중에 나갈 수 있으므로 "이번 세트에서 지웠는지"도 같이 남긴다.
         // 안 그러면 이어하기 때 세트가 초기화돼 다 된 콤보가 끊긴다.
         PlayerPrefs.SetInt(_mk + "save_cleared_set", _clearedThisSet ? 1 : 0);
@@ -745,6 +751,7 @@ public class GameManager : MonoBehaviour
 
         Score  = PlayerPrefs.GetInt(_mk + "save_score", 0);
         _combo          = PlayerPrefs.GetInt(_mk + "save_combo", 0);
+        NewBestThisRun  = PlayerPrefs.GetInt(_mk + "save_newbest", 0) == 1;
         _clearedThisSet  = PlayerPrefs.GetInt(_mk + "save_cleared_set", 0) == 1;
         _comboArmed      = PlayerPrefs.GetInt(_mk + "save_combo_armed", 0) == 1;
         for (int i = 0; i < 3; i++)
@@ -763,6 +770,7 @@ public class GameManager : MonoBehaviour
         PlayerPrefs.DeleteKey(_mk + "save_board");
         PlayerPrefs.DeleteKey(_mk + "save_score");
         PlayerPrefs.DeleteKey(_mk + "save_combo");
+        PlayerPrefs.DeleteKey(_mk + "save_newbest");
         PlayerPrefs.DeleteKey(_mk + "save_cleared_set");
         PlayerPrefs.DeleteKey(_mk + "save_combo_armed");
         PlayerPrefs.DeleteKey(_mk + "save_toggle_color");

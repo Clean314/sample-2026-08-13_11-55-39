@@ -709,7 +709,7 @@ public class MainMenuUI : MonoBehaviour
 
         // 공유 화면도 마찬가지다. 안 챙기면 공유 화면 위에 종료 확인 창이 뜬다.
         var share = FindFirstObjectByType<SharePanel>();
-        if (share != null) { Destroy(share.gameObject); return; }
+        if (share != null) { share.Close(); return; }
 
         ShowQuitDialog();
     }
